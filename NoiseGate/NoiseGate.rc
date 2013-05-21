@@ -2,7 +2,12 @@
 // Copyright (C) 2006-2012
 // http://www.resedit.net
 
-#include "winres.h"
+#include "winresrc.h"
+
+#ifndef IDC_STATIC
+   #define IDC_STATIC (-1)
+#endif
+
 #include "commctrl.h"
 #include "resource.h"
 
