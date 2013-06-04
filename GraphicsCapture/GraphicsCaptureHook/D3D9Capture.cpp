@@ -35,6 +35,8 @@ HookData                d3d9SwapPresent;
 FARPROC                 oldD3D9Release = NULL;
 FARPROC                 newD3D9Release = NULL;
 
+extern CRITICAL_SECTION d3d9EndMutex;
+
 LPVOID                  lpCurrentDevice = NULL;
 DWORD                   d3d9Format = 0;
 
@@ -310,6 +312,28 @@ void DoD3D9GPUHook(IDirect3DDevice9 *device)
     factory->Release();
 
     //------------------------------------------------
+
+    IDirect3DSurface9 *backBuffer;
+    hErr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+    if (FAILED(hErr)) {
+        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9GPUHook: Could not get back buffer, result = " << (UINT)hErr << endl;
+        goto finishGPUHook;
+    }
+
+    D3DSURFACE_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+    if (FAILED(hErr = backBuffer->GetDesc(&sd))) {
+        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9GPUHook: Could not get back buffer surface info, result = " << (UINT)hErr << endl;
+        goto finishGPUHook;
+    }
+
+    //sometimes the backbuffer does not actually match the swap chain size,
+    //so you have to use the backbuffer size to get the right value
+    d3d9CaptureInfo.cx = sd.Width;
+    d3d9CaptureInfo.cy = sd.Height;
+    backBuffer->Release();
+
+    //------------------------------------------------
     D3D10_TEXTURE2D_DESC texGameDesc;
     ZeroMemory(&texGameDesc, sizeof(texGameDesc));
     texGameDesc.Width               = d3d9CaptureInfo.cx;
@@ -439,31 +463,63 @@ void DoD3D9CPUHook(IDirect3DDevice9 *device)
     HRESULT hErr;
     UINT pitch;
 
-    for(UINT i=0; i<NUM_BUFFERS; i++)
-    {
-        if(FAILED(hErr = device->CreateOffscreenPlainSurface(d3d9CaptureInfo.cx, d3d9CaptureInfo.cy, (D3DFORMAT)d3d9Format, D3DPOOL_SYSTEMMEM, &textures[i], NULL)))
-        {
-            RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: device->CreateOffscreenPlainSurface " << i << " failed, result = " << (UINT)hErr << endl;
-            bSuccess = false;
-            break;
-        }
+    //------------------------------------------------
 
-        if(i == (NUM_BUFFERS-1))
+    IDirect3DSurface9 *backBuffer = NULL;
+    D3DSURFACE_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+
+    hErr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+    if (FAILED(hErr)) {
+        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: Could not get back buffer, result = " << (UINT)hErr << endl;
+        bSuccess = false;
+    }
+
+    if (bSuccess)
+    {
+        if (FAILED(hErr = backBuffer->GetDesc(&sd))) {
+            RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: Could not get back buffer surface info, result = " << (UINT)hErr << endl;
+            bSuccess = false;
+        }
+    }
+
+    SafeRelease(backBuffer);
+
+    if (bSuccess)
+    {
+        //sometimes the backbuffer does not actually match the swap chain size,
+        //so you have to use the backbuffer size to get the right value
+        d3d9CaptureInfo.cx = sd.Width;
+        d3d9CaptureInfo.cy = sd.Height;
+
+        for(UINT i=0; i<NUM_BUFFERS; i++)
         {
-            D3DLOCKED_RECT lr;
-            if(FAILED(hErr = textures[i]->LockRect(&lr, NULL, D3DLOCK_READONLY)))
+            if(FAILED(hErr = device->CreateOffscreenPlainSurface(d3d9CaptureInfo.cx, d3d9CaptureInfo.cy, (D3DFORMAT)d3d9Format, D3DPOOL_SYSTEMMEM, &textures[i], NULL)))
             {
-                RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: textures[" << i << "]->LockRect failed, result = " << (UINT)hErr << endl;
+                RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: device->CreateOffscreenPlainSurface " << i << " failed, result = " << (UINT)hErr << endl;
                 bSuccess = false;
                 break;
             }
 
-            pitch = lr.Pitch;
-            textures[i]->UnlockRect();
+            if(i == (NUM_BUFFERS-1))
+            {
+                D3DLOCKED_RECT lr;
+                if(FAILED(hErr = textures[i]->LockRect(&lr, NULL, D3DLOCK_READONLY)))
+                {
+                    RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: textures[" << i << "]->LockRect failed, result = " << (UINT)hErr << endl;
+                    bSuccess = false;
+                    break;
+                }
+
+                pitch = lr.Pitch;
+                textures[i]->UnlockRect();
+            }
         }
     }
 
-    if(bSuccess)
+    //------------------------------------------------
+
+    if (bSuccess)
     {
         for(UINT i=0; i<NUM_BUFFERS; i++)
         {
@@ -839,6 +895,8 @@ ULONG STDMETHODCALLTYPE D3D9Release(IDirect3DDevice9 *device)
 
 HRESULT STDMETHODCALLTYPE D3D9EndScene(IDirect3DDevice9 *device)
 {
+    EnterCriticalSection(&d3d9EndMutex);
+
     d3d9EndScene.Unhook();
 
     RUNEVERYRESET logOutput << CurrentTimeString() << "D3D9EndScene called" << endl;
@@ -864,6 +922,8 @@ HRESULT STDMETHODCALLTYPE D3D9EndScene(IDirect3DDevice9 *device)
 
     HRESULT hRes = device->EndScene();
     d3d9EndScene.Rehook();
+
+    LeaveCriticalSection(&d3d9EndMutex);
 
     return hRes;
 }
@@ -1122,6 +1182,13 @@ bool InitD3D9Capture()
     }
 
     return bSuccess;
+}
+
+void CheckD3D9Capture()
+{
+    EnterCriticalSection(&d3d9EndMutex);
+    d3d9EndScene.Rehook(true);
+    LeaveCriticalSection(&d3d9EndMutex);
 }
 
 void FreeD3D9Capture()

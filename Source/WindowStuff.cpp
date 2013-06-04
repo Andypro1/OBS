@@ -1670,14 +1670,17 @@ INT_PTR CALLBACK OBS::GlobalSourcesProc(HWND hwnd, UINT message, WPARAM wParam, 
                 case IDC_ADD:
                     {
                         HMENU hMenu = CreatePopupMenu();
-                        
+
                         for(UINT i=0; i<App->imageSourceClasses.Num(); i++)
                         {
                             if(App->imageSourceClasses[i].strClass != TEXT("GlobalSource"))
                             {
-                                String strAdd = Str("Listbox.Add");
-                                strAdd.FindReplace(TEXT("$1"), App->imageSourceClasses[i].strName);
-                                AppendMenu(hMenu, MF_STRING, i+1, strAdd.Array());
+                                if (!App->imageSourceClasses[i].bDeprecated)
+                                {
+                                    String strAdd = Str("Listbox.Add");
+                                    strAdd.FindReplace(TEXT("$1"), App->imageSourceClasses[i].strName);
+                                    AppendMenu(hMenu, MF_STRING, i+1, strAdd.Array());
+                                }
                             }
                         }
 
