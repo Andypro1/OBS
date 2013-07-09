@@ -209,6 +209,8 @@
 #define IDC_USEMULTITHREADEDOPTIMIZATIONS2 1100
 #define IDC_DISABLEPREVIEWENCODING      1100
 #define IDC_PROGRESS1                   1101
+#define IDC_ALLOWEXTRAHOTKEYMODIFIERS   1101
+#define IDC_ALLOWOTHERHOTKEYMODIFIERS   1101
 #define IDC_DASHBOARDLINK_STATIC        1102
 #define IDC_DASHBOARDLINK               1103
 #define IDC_COLOR                       1104
@@ -246,6 +248,7 @@
 #define IDC_QSVUSEVIDEOENCODERSETTINGS  1131
 #define IDC_PRIORITY                    1132
 #define IDC_USECBR                      1133
+#define IDC_PADCBR                      1134
 #define IDC_COMBO1                      1139
 #define IDC_DISABLECTSADJUST            1140
 #define IDC_USECFR                      1141
@@ -298,6 +301,7 @@
 #define IDA_SOURCE_BOTTOM_CANVAS        40054
 #define IDA_SOURCE_CENTER_VER           40055
 #define IDA_SOURCE_CENTER_HOR           40056
+#define IDA_SOURCE_RESETCROP            40057
 
 // Next default values for new objects
 // 

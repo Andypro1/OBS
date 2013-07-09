@@ -219,9 +219,6 @@ bool OBS::SetScene(CTSTR lpScene)
     if(!newSceneElement)
         return false;
 
-    if(API != NULL)
-       ReportSwitchScenes(lpScene);
-
     if(sceneElement == newSceneElement)
         return true;
 
@@ -305,6 +302,9 @@ bool OBS::SetScene(CTSTR lpScene)
 
         delete previousScene;
     }
+
+    if(API != NULL)
+       ReportSwitchScenes(lpScene);
 
     return true;
 }
@@ -645,8 +645,11 @@ void OBSAPIInterface::HandleHotkeys()
 
         hotkeyModifiers &= ~(HOTKEYF_EXT);
 
-        //changed so that it allows hotkeys to be pressed even if extra modiifers are pushed
-        bool bModifiersMatch = ((hotkeyModifiers & modifiers) == hotkeyModifiers);//(hotkeyModifiers == modifiers);
+        bool bModifiersMatch = false;
+        if (GlobalConfig->GetInt(TEXT("General"), TEXT("AllowOtherHotkeyModifiers"), true))
+            bModifiersMatch = ((hotkeyModifiers & modifiers) == hotkeyModifiers); //allows other modifiers to be pressed
+        else 
+            bModifiersMatch = (hotkeyModifiers == modifiers);
 
         if(hotkeyModifiers && !hotkeyVK) //modifier-only hotkey
         {

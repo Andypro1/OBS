@@ -261,6 +261,11 @@ void STDCALL SleepTo(QWORD qw100NSTime)
 }
 #endif
 
+#ifdef OBS_TEST_BUILD
+#define LOGLONGFRAMESDEFAULT 1
+#else
+#define LOGLONGFRAMESDEFAULT 0
+#endif
 
 //todo: this function is an abomination, this is just disgusting.  fix it.
 //...seriously, this is really, really horrible.  I mean this is amazingly bad.
@@ -272,7 +277,7 @@ void OBS::MainCaptureLoop()
     bSentHeaders = false;
     bFirstAudioPacket = true;
 
-    bool bLogLongFramesProfile = GlobalConfig->GetInt(TEXT("General"), TEXT("LogLongFramesProfile"), 1) != 0;
+    bool bLogLongFramesProfile = GlobalConfig->GetInt(TEXT("General"), TEXT("LogLongFramesProfile"), LOGLONGFRAMESDEFAULT) != 0;
     float logLongFramesProfilePercentage = GlobalConfig->GetFloat(TEXT("General"), TEXT("LogLongFramesProfilePercentage"), 10.f);
 
     Vect2 baseSize    = Vect2(float(baseCX), float(baseCY));
@@ -747,7 +752,15 @@ void OBS::MainCaptureLoop()
         {
             //audio sometimes takes a bit to start -- do not start processing frames until audio has started capturing
             if(!bRecievedFirstAudioFrame)
+            {
+                static bool bWarnedAboutNoAudio = false;
+                if (qwTime-firstFrameTime > 10000 && !bWarnedAboutNoAudio)
+                {
+                    bWarnedAboutNoAudio = true;
+                    AddStreamInfo (TEXT ("WARNING: OBS is not receiving audio frames. Please check your audio devices."), StreamInfoPriority_Critical); 
+                }
                 bEncode = false;
+            }
             else if(bFirstFrame)
             {
                 firstFrameTime = qwTime;

@@ -104,21 +104,46 @@ bool CompareMemory(const LPVOID lpVal1, const LPVOID lpVal2, UINT nBytes)
 
 #ifdef _WIN64
 
-#define NUM_KNOWN_PATCHES 0
-#define PATCH_COMPARE_SIZE 1
-UPARAM patch_offsets[1] = {0};
-UPARAM patch_compare[1][PATCH_COMPARE_SIZE] = {{0}};
+#define NUM_KNOWN_PATCHES 4
+#define PATCH_COMPARE_SIZE 13
+UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {0x54FE6, 0x550C5, 0x8BDB5, 0x1841E5};
+BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
+{
+    {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //win7   - 6.1.7600.16385
+    {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //win7   - 6.1.7601.17514
+    {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0xB0, 0x28, 0x51, 0x00, 0x00},  //win8.1 - 6.3.9431.00000
+    {0x49, 0x8b, 0x85, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0x88, 0xc8, 0x50, 0x00, 0x00},  //win8   - 6.2.9200.16384
+};
+
+#define PATCH_SIZE 2
+BYTE patch[NUM_KNOWN_PATCHES][PATCH_SIZE] =
+{
+    {0xEB, 0x12},
+    {0xEB, 0x12},
+    {0x90, 0x90},
+    {0x90, 0x90},
+};
 
 #else
 
-#define NUM_KNOWN_PATCHES 3
+#define NUM_KNOWN_PATCHES 4
 #define PATCH_COMPARE_SIZE 12
-UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {0x79D96, 0x166A08, 0x79C9E};
+UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {0x79C9E, 0x79D96, 0x7F9BD, 0x166A08};
 BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
 {
-    {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7 - 6.1.7601.17514
-    {0x8b, 0x80, 0xe8, 0x29, 0x00, 0x00, 0x39, 0x90, 0xb0, 0x4b, 0x00, 0x00},  //win8 - 6.2.9200.16384
-    {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7 - 6.1.7600.16385
+    {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7   - 6.1.7600.16385
+    {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7   - 6.1.7601.17514
+    {0x8b, 0x80, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb0, 0x40, 0x4c, 0x00, 0x00},  //win8.1 - 6.3.9431.00000
+    {0x8b, 0x80, 0xe8, 0x29, 0x00, 0x00, 0x39, 0x90, 0xb0, 0x4b, 0x00, 0x00},  //win8   - 6.2.9200.16384
+};
+
+#define PATCH_SIZE 1
+BYTE patch[NUM_KNOWN_PATCHES][PATCH_SIZE] =
+{
+    {0xEB},
+    {0xEB},
+    {0xEB},
+    {0xEB},
 };
 
 #endif
@@ -383,15 +408,15 @@ void DoD3D9GPUHook(IDirect3DDevice9 *device)
     //------------------------------------------------
 
     LPBYTE patchAddress = (patchType != 0) ? GetD3D9PatchAddress() : NULL;
-    BYTE savedByte;
+    BYTE savedData[PATCH_SIZE];
     DWORD dwOldProtect;
 
     if(patchAddress)
     {
-        if(VirtualProtect(patchAddress, 1, PAGE_EXECUTE_READWRITE, &dwOldProtect))
+        if(VirtualProtect(patchAddress, PATCH_SIZE, PAGE_EXECUTE_READWRITE, &dwOldProtect))
         {
-            savedByte = *patchAddress;
-            *patchAddress = 0xEB;
+            memcpy(savedData, patchAddress, PATCH_SIZE);
+            memcpy(patchAddress, patch[patchType-1], PATCH_SIZE);
         }
         else
         {
@@ -409,8 +434,8 @@ void DoD3D9GPUHook(IDirect3DDevice9 *device)
 
     if(patchAddress)
     {
-        *patchAddress = savedByte;
-        VirtualProtect(patchAddress, 1, dwOldProtect, &dwOldProtect);
+        memcpy(patchAddress, savedData, PATCH_SIZE);
+        VirtualProtect(patchAddress, PATCH_SIZE, dwOldProtect, &dwOldProtect);
     }
 
     if(FAILED(hErr = d3d9Tex->GetSurfaceLevel(0, &copyD3D9TextureGame)))
@@ -706,8 +731,8 @@ void DoD3D9DrawStuff(IDirect3DDevice9 *device)
             if (hKeepAlive) {
                 CloseHandle(hKeepAlive);
             } else {
-                ClearD3D9Data();
                 logOutput << CurrentTimeString() << "Keepalive no longer found on d3d9, freeing capture data" << endl;
+                ClearD3D9Data();
                 bCapturing = false;
             }
 

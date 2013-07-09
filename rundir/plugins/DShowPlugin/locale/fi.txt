@@ -4,6 +4,8 @@ ClassName       "Videokaappauslaite"
 DeviceSelection "Laitteen valinta"
 OK              "OK"
 
+DeinterlacingType.None                  "Ei mitään"
+
 CrossbarSelection.Open                  "Avaa Crossbar"
 
 DeviceSelection.AudioDevice             "Äänilaite:"
@@ -15,6 +17,7 @@ DeviceSelection.Crossbarselect          "Valitse laitteen Crossbar:"
 DeviceSelection.CustomResolution        "Valinnainen resoluutio:"
 DeviceSelection.Delay                   "Puskurin viive (ms):"
 DeviceSelection.Device                  "Laite:"
+DeviceSelection.Deinterlacing           "Deinterlace:"
 DeviceSelection.ExistsInScene           "Laitetta käyttävä lähde on jo olemassa."
 DeviceSelection.ExistsSomewhere         "Tämä laite on käytössä yhdessä tai useammassa lähteessä."
 DeviceSelection.FlipImage               "Käännä kuva pystysuunnassa"

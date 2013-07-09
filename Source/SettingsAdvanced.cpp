@@ -86,6 +86,11 @@ void SettingsAdvanced::ApplySettings()
 
     //--------------------------------------------------
 
+    bool bAllowOtherHotkeyModifiers = SendMessage(GetDlgItem(hwnd, IDC_ALLOWOTHERHOTKEYMODIFIERS), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    GlobalConfig->SetInt(TEXT("General"), TEXT("AllowOtherHotkeyModifiers"), bAllowOtherHotkeyModifiers);
+
+    //--------------------------------------------------
+
     bool bUseCFR = SendMessage(GetDlgItem(hwnd, IDC_USECFR), BM_GETCHECK, 0, 0) == BST_CHECKED;
     AppConfig->SetInt   (TEXT("Video Encoding"), TEXT("UseCFR"),            bUseCFR);
 
@@ -105,7 +110,7 @@ void SettingsAdvanced::ApplySettings()
     //------------------------------------
 
     BOOL bUseQSV = SendMessage(GetDlgItem(hwnd, IDC_USEQSV), BM_GETCHECK, 0, 0) == BST_CHECKED;
-    GlobalConfig->SetInt(TEXT("Video Encoding"), TEXT("UseQSV"), bUseQSV);
+    AppConfig->SetInt(TEXT("Video Encoding"), TEXT("UseQSV"), bUseQSV);
 
     BOOL bQSVUseVideoEncoderSettings = SendMessage(GetDlgItem(hwnd, IDC_QSVUSEVIDEOENCODERSETTINGS), BM_GETCHECK, 0, 0) == BST_CHECKED;
     AppConfig->SetInt(TEXT("Video Encoding"), TEXT("QSVUseVideoEncoderSettings"), bQSVUseVideoEncoderSettings);
@@ -168,6 +173,7 @@ void SettingsAdvanced::SetDefaults()
     SendMessage(GetDlgItem(hwnd, IDC_LATENCYMETHOD), BM_SETCHECK, BST_UNCHECKED, 0);
     SendMessage(GetDlgItem(hwnd, IDC_BINDIP), CB_SETCURSEL, 0, 0);
     SendMessage(GetDlgItem(hwnd, IDC_DISABLEPREVIEWENCODING), BM_SETCHECK, BST_UNCHECKED, 0);
+    SendMessage(GetDlgItem(hwnd, IDC_ALLOWOTHERHOTKEYMODIFIERS), BM_SETCHECK, BST_CHECKED, 0);
 
     ShowWindow(GetDlgItem(hwnd, IDC_INFO), SW_SHOW);
     SetChangedSettings(true);
@@ -199,7 +205,7 @@ INT_PTR SettingsAdvanced::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
                 //------------------------------------
 
                 UINT sceneBufferingTime = GlobalConfig->GetInt(TEXT("General"), TEXT("SceneBufferingTime"), 400);
-                SendMessage(GetDlgItem(hwnd, IDC_SCENEBUFFERTIME), UDM_SETRANGE32, 60, 3000);
+                SendMessage(GetDlgItem(hwnd, IDC_SCENEBUFFERTIME), UDM_SETRANGE32, 60, 20000);
                 SendMessage(GetDlgItem(hwnd, IDC_SCENEBUFFERTIME), UDM_SETPOS32, 0, sceneBufferingTime);
 
                 //------------------------------------
@@ -227,6 +233,11 @@ INT_PTR SettingsAdvanced::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
 
                 bool bDisablePreviewEncoding = GlobalConfig->GetInt(TEXT("General"), TEXT("DisablePreviewEncoding"), false) != 0;
                 SendMessage(GetDlgItem(hwnd, IDC_DISABLEPREVIEWENCODING), BM_SETCHECK, bDisablePreviewEncoding ? BST_CHECKED : BST_UNCHECKED, 0);
+
+                //------------------------------------
+
+                bool bAllowOtherHotkeyModifiers = GlobalConfig->GetInt(TEXT("General"), TEXT("AllowOtherHotkeyModifiers"), true) != 0;
+                SendMessage(GetDlgItem(hwnd, IDC_ALLOWOTHERHOTKEYMODIFIERS), BM_SETCHECK, bAllowOtherHotkeyModifiers ? BST_CHECKED : BST_UNCHECKED, 0);
 
                 //--------------------------------------------
 
@@ -273,7 +284,7 @@ INT_PTR SettingsAdvanced::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
                 bool bHasQSV = CheckQSVHardwareSupport(false);
                 EnableWindow(GetDlgItem(hwnd, IDC_USEQSV), bHasQSV);
 
-                bool bUseQSV = GlobalConfig->GetInt(TEXT("Video Encoding"), TEXT("UseQSV")) != 0;
+                bool bUseQSV = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("UseQSV")) != 0;
                 SendMessage(GetDlgItem(hwnd, IDC_USEQSV), BM_SETCHECK, bUseQSV ? BST_CHECKED : BST_UNCHECKED, 0);
 
                 bool bQSVUseVideoEncoderSettings = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("QSVUseVideoEncoderSettings")) != 0;
@@ -449,6 +460,7 @@ INT_PTR SettingsAdvanced::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
                         EnableWindow(GetDlgItem(hwnd, IDC_QSVUSEVIDEOENCODERSETTINGS), bUseQSV);
                     }
                 case IDC_DISABLEPREVIEWENCODING:
+                case IDC_ALLOWOTHERHOTKEYMODIFIERS:
                 case IDC_USEMICQPC:
                 case IDC_SYNCTOVIDEOTIME:
                 case IDC_USECFR:

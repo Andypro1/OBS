@@ -673,8 +673,14 @@ UINT STDCALL OSGetProcessorCount()
 
 HANDLE STDCALL OSCreateThread(XTHREAD lpThreadFunc, LPVOID param)
 {
+    HANDLE hThread;
     DWORD dummy;
-    return CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)lpThreadFunc, param, 0, &dummy);
+
+    hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)lpThreadFunc, param, 0, &dummy);
+    if (!hThread)
+        CrashError (TEXT("CreateThread 0x%p failed: %d"), (LPVOID)lpThreadFunc, GetLastError());
+    
+    return hThread;
 }
 
 HANDLE STDCALL OSGetCurrentThread()
@@ -812,6 +818,9 @@ BOOL   STDCALL OSIncompatiblePatchesLoaded(String &errors)
 BOOL   STDCALL OSIncompatibleModulesLoaded()
 {
     StringList  moduleList;
+    
+    //Modules that will likely cause OBS to crash because they hooked it.
+    //This list is checked on stream start only.
 
     if (!OSGetLoadedModuleList(GetCurrentProcess(), moduleList))
         return 0;
@@ -820,10 +829,12 @@ BOOL   STDCALL OSIncompatibleModulesLoaded()
     {
         CTSTR moduleName = moduleList[i];
 
-        if (!scmp(moduleName, TEXT("dxtorycore.dll")) ||
-            !scmp(moduleName, TEXT("dxtorycore64.dll")) ||
-            !scmp(moduleName, TEXT("dxtorymm.dll")) ||
-            !scmp(moduleName, TEXT("dxtorymm64.dll")))
+        if (!scmp(moduleName, TEXT("dxtorycore.dll")) ||        //DXTory
+            !scmp(moduleName, TEXT("dxtorycore64.dll")) ||      //DXTory
+            !scmp(moduleName, TEXT("dxtorymm.dll")) ||          //DXTory
+            !scmp(moduleName, TEXT("dxtorymm64.dll")) ||        //DXTory
+            !scmp(moduleName, TEXT("atkdx11disp.dll")) ||       //ASUS OSD
+            !scmp(moduleName, TEXT("rtsshooks.dll")))           //EVGA Precision OSD
         {
             return 1;
         }
@@ -850,6 +861,8 @@ OSFileChangeData * STDCALL OSMonitorFileStart(String path)
     {
         DWORD test;
         zero(&data->directoryChange, sizeof(data->directoryChange));
+        
+        data->directoryChange.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 
         if(ReadDirectoryChangesW(hDirectory, data->changeBuffer, 2048, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE, &test, &data->directoryChange, NULL))
         {
@@ -860,8 +873,10 @@ OSFileChangeData * STDCALL OSMonitorFileStart(String path)
         else
         {
             int err = GetLastError();
+            CloseHandle(data->directoryChange.hEvent);
             CloseHandle(hDirectory);
             Log(TEXT("OSMonitorFileStart: Unable to monitor file '%s', error %d"), path.Array(), err);
+            Free(data);
             return NULL;
         }
     }
@@ -869,6 +884,7 @@ OSFileChangeData * STDCALL OSMonitorFileStart(String path)
     {
         int err = GetLastError();
         Log(TEXT("OSMonitorFileStart: Unable to open directory '%s', error %d"), data->strDirectory, err);
+        Free(data);
         return NULL;
     }
 }
@@ -906,15 +922,20 @@ BOOL STDCALL OSFileHasChanged (OSFileChangeData *data)
             notify = (FILE_NOTIFY_INFORMATION*)((BYTE *)notify + notify->NextEntryOffset);
         }
 
+        CloseHandle (data->directoryChange.hEvent);
+
         DWORD test;
         zero(&data->directoryChange, sizeof(data->directoryChange));
         zero(data->changeBuffer, sizeof(data->changeBuffer));
+
+        data->directoryChange.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 
         if(ReadDirectoryChangesW(data->hDirectory, data->changeBuffer, 2048, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE, &test, &data->directoryChange, NULL))
         {
         }
         else
         {
+            CloseHandle(data->directoryChange.hEvent);
             CloseHandle(data->hDirectory);
             return hasModified;
         }
@@ -925,7 +946,13 @@ BOOL STDCALL OSFileHasChanged (OSFileChangeData *data)
 
 VOID STDCALL OSMonitorFileDestroy (OSFileChangeData *data)
 {
-    CancelIoEx(data->hDirectory, &data->directoryChange);
+    if(!HasOverlappedIoCompleted(&data->directoryChange))
+    {
+        CancelIoEx(data->hDirectory, &data->directoryChange);
+        WaitForSingleObject(data->directoryChange.hEvent, INFINITE);
+    }
+
+    CloseHandle(data->directoryChange.hEvent);
     CloseHandle(data->hDirectory);
     Free(data);
 }

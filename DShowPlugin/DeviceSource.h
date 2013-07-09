@@ -19,7 +19,9 @@
 
 #pragma once
 
-void PackPlanar(LPBYTE convertBuffer, LPBYTE lpPlanar, UINT renderCX, UINT renderCY, UINT pitch, UINT startY, UINT endY);
+#include <memory>
+
+void PackPlanar(LPBYTE convertBuffer, LPBYTE lpPlanar, UINT renderCX, UINT renderCY, UINT pitch, UINT startY, UINT endY, UINT linePitch, UINT lineShift);
 
 enum DeviceColorType
 {
@@ -65,6 +67,7 @@ struct ConvertData
     UINT   width, height;
     UINT   pitch;
     UINT   startY, endY;
+    UINT   linePitch, lineShift;
 };
 
 class DeviceSource;
@@ -129,8 +132,22 @@ class DeviceSource : public ImageSource
     bool            bFlipVertical, bFlipHorizontal, bDeviceHasAudio, bUsePointFiltering;
     UINT64          frameInterval;
     UINT            renderCX, renderCY;
+    UINT            imageCX, imageCY;
+    UINT            linePitch, lineShift, lineSize;
     BOOL            bUseCustomResolution;
     UINT            preferredOutputType;
+
+    struct {
+        int                         type; //DeinterlacingType
+        char                        fieldOrder; //DeinterlacingFieldOrder
+        char                        processor; //DeinterlacingProcessor
+        bool                        curField, bNewFrame;
+        bool                        doublesFramerate;
+        bool                        needsPreviousFrame;
+        std::unique_ptr<Texture>    texture;
+        UINT                        imageCX, imageCY;
+        std::unique_ptr<Shader>     vertexShader, pixelShader;
+    } deinterlacer;
 
     bool            bFirstFrame;
     bool            bUseThreadedConversion;
@@ -139,7 +156,7 @@ class DeviceSource : public ImageSource
     int             soundOutputType;
     bool            bOutputAudioToDesktop;
 
-    Texture         *texture;
+    Texture         *texture, *previousTexture;
     XElement        *data;
     UINT            texturePitch;
     bool            bCapturing, bFiltersLoaded;
@@ -177,6 +194,7 @@ class DeviceSource : public ImageSource
     //---------------------------------
 
     String ChooseShader();
+    String ChooseDeinterlacingShader();
 
     void Convert422To444(LPBYTE convertBuffer, LPBYTE lp422, UINT pitch, bool bLeadingY);
 
@@ -218,6 +236,6 @@ public:
     void SetInt(CTSTR lpName, int iVal);
     void SetFloat(CTSTR lpName, float fValue);
 
-    Vect2 GetSize() const {return Vect2(float(renderCX), float(renderCY));}
+    Vect2 GetSize() const {return Vect2(float(imageCX), float(imageCY));}
 };
 

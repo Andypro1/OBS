@@ -37,7 +37,37 @@ extern HINSTANCE hinstMain;
 IBaseFilter* GetDeviceByValue(const IID &enumType, WSTR lpType, CTSTR lpName, WSTR lpType2=NULL, CTSTR lpName2=NULL);
 IPin* GetOutputPin(IBaseFilter *filter, const GUID *majorType);
 void GetOutputList(IPin *curPin, List<MediaOutputInfo> &outputInfoList);
-bool GetClosestResolution(List<MediaOutputInfo> &outputList, SIZE &resolution, UINT64 &frameInterval);
+bool GetClosestResolutionFPS(List<MediaOutputInfo> &outputList, SIZE &resolution, UINT64 &frameInterval, bool bPrioritizeFPS);
 
 extern LocaleStringLookup *pluginLocale;
 #define PluginStr(text) pluginLocale->LookupString(TEXT2(text))
+
+enum DeinterlacingType {
+    DEINTERLACING_NONE,
+    DEINTERLACING_DISCARD,
+    DEINTERLACING_RETRO,
+    DEINTERLACING_BLEND,
+    DEINTERLACING_BLEND2x,
+    DEINTERLACING_LINEAR,
+    DEINTERLACING_LINEAR2x,
+    DEINTERLACING_YADIF,
+    DEINTERLACING_YADIF2x,
+    DEINTERLACING__DEBUG,
+    DEINTERLACING_TYPE_LAST
+};
+
+enum DeinterlacingFieldOrder {
+    FIELD_ORDER_NONE,
+    FIELD_ORDER_TFF = 1,
+    FIELD_ORDER_BFF,
+};
+
+enum DeinterlacingProcessor {
+    DEINTERLACING_PROCESSOR_CPU = 1,
+    DEINTERLACING_PROCESSOR_GPU,
+};
+
+struct DeinterlacerConfig {
+    int    type, fieldOrder, processor;
+    bool   doublesFramerate;
+};

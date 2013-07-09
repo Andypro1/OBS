@@ -63,6 +63,10 @@ void SettingsEncoding::ApplySettings()
     //if(bufSize < 100) bufSize = bitrate;  //R1CH: Allow users to enter 0 buffer size to disable VBV, its protected by checkbox anyway
     AppConfig->SetInt(TEXT("Video Encoding"), TEXT("BufferSize"), bufSize);
 
+    if(App->GetVideoEncoder() != NULL) {
+        if(App->GetVideoEncoder()->DynamicBitrateSupported())   App->GetVideoEncoder()->SetBitRate(bitrate, bufSize);
+    }
+
     String strTemp = GetCBText(GetDlgItem(hwnd, IDC_AUDIOCODEC));
     AppConfig->SetString(TEXT("Audio Encoding"), TEXT("Codec"), strTemp);
 
@@ -75,6 +79,9 @@ void SettingsEncoding::ApplySettings()
 
     bool bUseCBR = SendMessage(GetDlgItem(hwnd, IDC_USECBR), BM_GETCHECK, 0, 0) == BST_CHECKED;
     AppConfig->SetInt(TEXT("Video Encoding"), TEXT("UseCBR"), bUseCBR);
+
+    bool bPadCBR = SendMessage(GetDlgItem(hwnd, IDC_PADCBR), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    AppConfig->SetInt(TEXT("Video Encoding"), TEXT("PadCBR"), bPadCBR);
 
     bool bCustomBuffer = SendMessage(GetDlgItem(hwnd, IDC_CUSTOMBUFFER), BM_GETCHECK, 0, 0) == BST_CHECKED;
     AppConfig->SetInt(TEXT("Video Encoding"), TEXT("UseBufferSize"), bCustomBuffer);
@@ -128,8 +135,15 @@ INT_PTR SettingsEncoding::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
                 //--------------------------------------------
 
                 bool bUseCBR = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("UseCBR"), 1) != 0;
+                bool bPadCBR = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("PadCBR"), 1) != 0;
                 SendMessage(GetDlgItem(hwnd, IDC_USECBR), BM_SETCHECK, bUseCBR ? BST_CHECKED : BST_UNCHECKED, 0);
+                SendMessage(GetDlgItem(hwnd, IDC_PADCBR), BM_SETCHECK, bPadCBR ? BST_CHECKED : BST_UNCHECKED, 0);
                 EnableWindow(GetDlgItem(hwnd, IDC_QUALITY), !bUseCBR);
+                EnableWindow(GetDlgItem(hwnd, IDC_PADCBR), bUseCBR);
+
+                ti.lpszText = (LPWSTR)Str("Settings.Advanced.PadCBRToolTip");
+                ti.uId = (UINT_PTR)GetDlgItem(hwnd, IDC_PADCBR);
+                SendMessage(hwndToolTip, TTM_ADDTOOL, 0, (LPARAM)&ti);
 
                 //--------------------------------------------
 
@@ -240,6 +254,7 @@ INT_PTR SettingsEncoding::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
 
                     case IDC_CUSTOMBUFFER:
                     case IDC_USECBR:
+                    case IDC_PADCBR:
                         if (HIWORD(wParam) == BN_CLICKED)
                         {
                             bool bChecked = SendMessage((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -250,7 +265,10 @@ INT_PTR SettingsEncoding::ProcMessage(UINT message, WPARAM wParam, LPARAM lParam
                                     SetWindowText(GetDlgItem(hwnd, IDC_BUFFERSIZE), GetEditText(GetDlgItem(hwnd, IDC_MAXBITRATE)));
                             }
                             else if(LOWORD(wParam) == IDC_USECBR)
+                            {
                                 EnableWindow(GetDlgItem(hwnd, IDC_QUALITY), !bChecked);
+                                EnableWindow(GetDlgItem(hwnd, IDC_PADCBR), bChecked);
+                            }
 
                             bDataChanged = true;
                         }
