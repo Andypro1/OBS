@@ -88,18 +88,22 @@ typedef BOOL   (WINAPI *WGLSWAPBUFFERSPROC)(HDC);
 typedef BOOL   (WINAPI *WGLDELETECONTEXTPROC)(HGLRC);
 typedef PROC   (WINAPI *WGLGETPROCADDRESSPROC)(LPCSTR);
 typedef BOOL   (WINAPI *WGLMAKECURRENTPROC)(HDC, HGLRC);
+typedef HDC    (WINAPI *WGLGETCURRENTDCPROC)();
+typedef HGLRC  (WINAPI *WGLGETCURRENTCONTEXTPROC)();
 typedef HGLRC  (WINAPI *WGLCREATECONTEXTPROC)(HDC);
 
-GLREADBUFFERPROC        glReadBuffer          = NULL;
-GLDRAWBUFFERPROC        glDrawBuffer          = NULL;
-GLREADPIXELSPROC        glReadPixels          = NULL;
-GLGETERRORPROC          glGetError            = NULL;
-WGLSWAPLAYERBUFFERSPROC jimglSwapLayerBuffers = NULL;
-WGLSWAPBUFFERSPROC      jimglSwapBuffers      = NULL;
-WGLDELETECONTEXTPROC    jimglDeleteContext    = NULL;
-WGLGETPROCADDRESSPROC   jimglGetProcAddress   = NULL;
-WGLMAKECURRENTPROC      jimglMakeCurrent      = NULL;
-WGLCREATECONTEXTPROC    jimglCreateContext    = NULL;
+GLREADBUFFERPROC         glReadBuffer           = NULL;
+GLDRAWBUFFERPROC         glDrawBuffer           = NULL;
+GLREADPIXELSPROC         glReadPixels           = NULL;
+GLGETERRORPROC           glGetError             = NULL;
+WGLSWAPLAYERBUFFERSPROC  jimglSwapLayerBuffers  = NULL;
+WGLSWAPBUFFERSPROC       jimglSwapBuffers       = NULL;
+WGLDELETECONTEXTPROC     jimglDeleteContext     = NULL;
+WGLGETPROCADDRESSPROC    jimglGetProcAddress    = NULL;
+WGLMAKECURRENTPROC       jimglMakeCurrent       = NULL;
+WGLGETCURRENTDCPROC      jimglGetCurrentDC      = NULL;
+WGLGETCURRENTCONTEXTPROC jimglGetCurrentContext = NULL;
+WGLCREATECONTEXTPROC     jimglCreateContext     = NULL;
 
 //------------------------------------------------
 
@@ -133,6 +137,8 @@ HookData                glHookDeleteContext;
 //2 buffers turns out to be more optimal than 3 -- seems that cache has something to do with this in GL
 #define                 NUM_BUFFERS 2
 #define                 ZERO_ARRAY {0, 0}
+
+extern CRITICAL_SECTION glMutex;
 
 GLuint                  gltextures[NUM_BUFFERS] = ZERO_ARRAY;
 HDC                     hdcAcquiredDC = NULL;
@@ -294,6 +300,7 @@ void ClearGLData()
 
     DestroySharedMemory();
     bHasTextures = false;
+    hdcAcquiredDC = NULL;
     texData = NULL;
     copyData = NULL;
     copyWait = 0;
@@ -428,17 +435,26 @@ void DoGLGPUHook(RECT &rc)
         gl_dxDevice = wglDXOpenDeviceNV(shareDevice);
         if (gl_dxDevice == NULL) {
             RUNEVERYRESET logOutput << CurrentTimeString() << "DoGLGPUHook: wglDXOpenDeviceNV failed" << endl;
+            d3d101Tex->Release();
+            res->Release();
             goto finishGPUHook;
         }
 
         glGenTextures(1, &gl_sharedtex);
-        gl_handle = wglDXRegisterObjectNV(gl_dxDevice, d3d101Tex, gl_sharedtex, GL_TEXTURE_2D, WGL_ACCESS_WRITE_DISCARD_NV);
+        gl_handle = wglDXRegisterObjectNV(gl_dxDevice, copyTextureIntermediary, gl_sharedtex, GL_TEXTURE_2D, WGL_ACCESS_WRITE_DISCARD_NV);
 
         if (gl_handle == NULL) {
             RUNEVERYRESET logOutput << CurrentTimeString() << "DoGLGPUHook: wglDXRegisterObjectNV failed" << endl;
+            d3d101Tex->Release();
+            res->Release();
             goto finishGPUHook;
         }
     }
+
+    {RUNEVERYRESET logOutput << CurrentTimeString() << "share device: " << UINT(shareDevice) << endl;}
+    {RUNEVERYRESET logOutput << CurrentTimeString() << "share texture: " << UINT(copyTextureIntermediary) << endl;}
+    {RUNEVERYRESET logOutput << CurrentTimeString() << "share device handle: " << UINT(gl_dxDevice) << endl;}
+    {RUNEVERYRESET logOutput << CurrentTimeString() << "share texture handle: " << UINT(gl_handle) << endl;}
 
     glGenFramebuffers(1, &gl_fbo);
 
@@ -615,7 +631,7 @@ LONG lastCX=0, lastCY=0;
 
 void HandleGLSceneUpdate(HDC hDC)
 {
-    if(!bTargetAcquired && hdcAcquiredDC == NULL)
+    if(hdcAcquiredDC == NULL)
     {
         logOutput << CurrentTimeString() << "setting up gl data" << endl;
         PIXELFORMATDESCRIPTOR pfd;
@@ -825,6 +841,9 @@ void HandleGLSceneUpdate(HDC hDC)
                 ClearGLData();
             }
         }
+    } else {
+        RUNEVERYRESET logOutput << CurrentTimeString() << "new GL DC found, terminating gl capture" << endl;
+        ClearGLData();
     }
 }
 
@@ -838,44 +857,76 @@ static void HandleGLSceneDestroy()
 
 static BOOL WINAPI SwapBuffersHook(HDC hDC)
 {
+    //EnterCriticalSection(&glMutex);
+
+    RUNEVERYRESET logOutput << CurrentTimeString() << "SwapBuffers(" << UINT(hDC) << ") Called" << endl;
+
     HandleGLSceneUpdate(hDC);
 
     glHookSwapBuffers.Unhook();
     BOOL bResult = SwapBuffers(hDC);
     glHookSwapBuffers.Rehook(); 
 
+    //LeaveCriticalSection(&glMutex);
+
     return bResult;
 }
 
 static BOOL WINAPI wglSwapLayerBuffersHook(HDC hDC, UINT fuPlanes)
 {
+    //EnterCriticalSection(&glMutex);
+
+    RUNEVERYRESET logOutput << CurrentTimeString() << "wglSwapLayerBuffers(" << UINT(hDC) << ", " << fuPlanes << ") Called" << endl;
+
     HandleGLSceneUpdate(hDC);
 
     glHookSwapLayerBuffers.Unhook();
     BOOL bResult = jimglSwapLayerBuffers(hDC, fuPlanes);
     glHookSwapLayerBuffers.Rehook();
 
+    //LeaveCriticalSection(&glMutex);
+
     return bResult;
 }
 
 static BOOL WINAPI wglSwapBuffersHook(HDC hDC)
 {
+    //EnterCriticalSection(&glMutex);
+
+    RUNEVERYRESET logOutput << CurrentTimeString() << "wglSwapBuffers(" << UINT(hDC) << ") Called" << endl;
+
     HandleGLSceneUpdate(hDC);
 
     glHookwglSwapBuffers.Unhook();
     BOOL bResult = jimglSwapBuffers(hDC);
     glHookwglSwapBuffers.Rehook();
 
+    //LeaveCriticalSection(&glMutex);
+
     return bResult;
 }
 
 static BOOL WINAPI wglDeleteContextHook(HGLRC hRC)
 {
-    HandleGLSceneDestroy();
+    //EnterCriticalSection(&glMutex);
+
+    RUNEVERYRESET logOutput << CurrentTimeString() << "wglDeleteContext Called" << endl;
+
+    if (hdcAcquiredDC && bTargetAcquired)
+    {
+        HDC hLastHDC = jimglGetCurrentDC();
+        HGLRC hLastHGLRC = jimglGetCurrentContext();
+
+        jimglMakeCurrent(hdcAcquiredDC, hRC);
+        HandleGLSceneDestroy();
+        jimglMakeCurrent(hLastHDC, hLastHGLRC);
+    }
 
     glHookDeleteContext.Unhook();
     BOOL bResult = jimglDeleteContext(hRC);
     glHookDeleteContext.Rehook();
+
+    //LeaveCriticalSection(&glMutex);
 
     return bResult;
 }
@@ -950,19 +1001,22 @@ bool InitGLCapture()
     HMODULE hGL = GetModuleHandle(TEXT("opengl32.dll"));
     if(hGL && hwndOpenGLSetupWindow)
     {
-        glReadBuffer          = (GLREADBUFFERPROC)       GetProcAddress(hGL, "glReadBuffer");
-        glDrawBuffer          = (GLDRAWBUFFERPROC)       GetProcAddress(hGL, "glDrawBuffer");
-        glReadPixels          = (GLREADPIXELSPROC)       GetProcAddress(hGL, "glReadPixels");
-        glGetError            = (GLGETERRORPROC)         GetProcAddress(hGL, "glGetError");
-        jimglSwapLayerBuffers = (WGLSWAPLAYERBUFFERSPROC)GetProcAddress(hGL, "wglSwapLayerBuffers");
-        jimglSwapBuffers      = (WGLSWAPBUFFERSPROC)     GetProcAddress(hGL, "wglSwapBuffers");
-        jimglDeleteContext    = (WGLDELETECONTEXTPROC)   GetProcAddress(hGL, "wglDeleteContext");
-        jimglGetProcAddress   = (WGLGETPROCADDRESSPROC)  GetProcAddress(hGL, "wglGetProcAddress");
-        jimglMakeCurrent      = (WGLMAKECURRENTPROC)     GetProcAddress(hGL, "wglMakeCurrent");
-        jimglCreateContext    = (WGLCREATECONTEXTPROC)   GetProcAddress(hGL, "wglCreateContext");
+        glReadBuffer           = (GLREADBUFFERPROC)        GetProcAddress(hGL, "glReadBuffer");
+        glDrawBuffer           = (GLDRAWBUFFERPROC)        GetProcAddress(hGL, "glDrawBuffer");
+        glReadPixels           = (GLREADPIXELSPROC)        GetProcAddress(hGL, "glReadPixels");
+        glGetError             = (GLGETERRORPROC)          GetProcAddress(hGL, "glGetError");
+        jimglSwapLayerBuffers  = (WGLSWAPLAYERBUFFERSPROC) GetProcAddress(hGL, "wglSwapLayerBuffers");
+        jimglSwapBuffers       = (WGLSWAPBUFFERSPROC)      GetProcAddress(hGL, "wglSwapBuffers");
+        jimglDeleteContext     = (WGLDELETECONTEXTPROC)    GetProcAddress(hGL, "wglDeleteContext");
+        jimglGetProcAddress    = (WGLGETPROCADDRESSPROC)   GetProcAddress(hGL, "wglGetProcAddress");
+        jimglMakeCurrent       = (WGLMAKECURRENTPROC)      GetProcAddress(hGL, "wglMakeCurrent");
+        jimglGetCurrentDC      = (WGLGETCURRENTDCPROC)     GetProcAddress(hGL, "wglGetCurrentDC");
+        jimglGetCurrentContext = (WGLGETCURRENTCONTEXTPROC)GetProcAddress(hGL, "wglGetCurrentContext");
+        jimglCreateContext     = (WGLCREATECONTEXTPROC)    GetProcAddress(hGL, "wglCreateContext");
 
         if( !glReadBuffer || !glReadPixels || !glGetError || !jimglSwapLayerBuffers || !jimglSwapBuffers ||
-            !jimglDeleteContext || !jimglGetProcAddress || !jimglMakeCurrent || !jimglCreateContext)
+            !jimglDeleteContext || !jimglGetProcAddress || !jimglMakeCurrent || !jimglGetCurrentDC ||
+            !jimglGetCurrentContext || !jimglCreateContext)
         {
             return false;
         }
@@ -1038,6 +1092,18 @@ bool InitGLCapture()
     }
 
     return bSuccess;
+}
+
+void CheckGLCapture()
+{
+    /*EnterCriticalSection(&glMutex);
+
+    glHookSwapBuffers.Rehook(true);
+    glHookSwapLayerBuffers.Rehook(true);
+    glHookwglSwapBuffers.Rehook(true);
+    glHookDeleteContext.Rehook(true);
+
+    LeaveCriticalSection(&glMutex);*/
 }
 
 void FreeGLCapture()
