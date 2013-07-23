@@ -16,6 +16,7 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
 ********************************************************************************/
 
+#include <Iphlpapi.h>
 
 struct NetworkPacket
 {
@@ -108,6 +109,10 @@ protected:
     HANDLE hDataBufferMutex;
     HANDLE hConnectionThread;
 
+    HANDLE hSendLoopExit;
+    HANDLE hSocketLoopExit;
+    HANDLE hSendBacklogEvent;
+
     bool bStopping;
 
     int packetWaitType;
@@ -132,6 +137,8 @@ protected:
     void SendLoop();
     void SocketLoop();
     int FlushDataBuffer();
+    void SetupSendBacklogEvent();
+    void FatalSocketShutdown();
     static DWORD SendThread(RTMPPublisher *publisher);
     static DWORD SocketThread(RTMPPublisher *publisher);
 
@@ -139,6 +146,7 @@ protected:
     bool DoIFrameDelay(bool bBFramesOnly);
 
     virtual void ProcessPackets();
+    virtual void FlushBufferedPackets();
 
     virtual void RequestKeyframe(int waitTime);
 

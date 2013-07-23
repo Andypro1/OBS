@@ -23,6 +23,8 @@
 
 //primarily main window stuff an initialization/destruction code
 
+//god forsaken laptops
+//extern "C" _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
 
 typedef bool (*LOADPLUGINPROC)();
 typedef bool (*LOADPLUGINEXPROC)(UINT);
@@ -266,7 +268,7 @@ OBS::OBS()
 
     bFullscreenMode = false;
 
-    hwndMain = CreateWindowEx(WS_EX_CONTROLPARENT|WS_EX_WINDOWEDGE, OBS_WINDOW_CLASS, OBS_VERSION_STRING,
+    hwndMain = CreateWindowEx(WS_EX_CONTROLPARENT|WS_EX_WINDOWEDGE, OBS_WINDOW_CLASS, GetApplicationName(),
         WS_OVERLAPPED | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
         x, y, cx, cy, NULL, NULL, hinstMain, NULL);
     if(!hwndMain)
@@ -876,10 +878,6 @@ void OBS::SetFullscreenMode(bool fullscreen)
     App->bFullscreenMode = fullscreen;
     if(fullscreen)
     {
-        // Exit edit mode ensuring that the button is toggled as well
-        if(bEditMode)
-            SendMessage(GetDlgItem(hwndMain, ID_SCENEEDITOR), BM_CLICK, 0, 0);
-
         // Remember current window placement
         fullscreenPrevPlacement.length = sizeof(fullscreenPrevPlacement);
         GetWindowPlacement(hwndMain, &fullscreenPrevPlacement);
@@ -1106,15 +1104,10 @@ void OBS::ResizeWindow(bool bRedrawRenderFrame)
 
     xPos = resetXPos;
 
-    BOOL bStreamOutput = AppConfig->GetInt(TEXT("Publish"), TEXT("Mode")) == 0;
-
-    strDashboard = AppConfig->GetString(TEXT("Publish"), TEXT("Dashboard"));
-    BOOL bShowDashboardButton = strDashboard.IsValid() && bStreamOutput;
-
     SetWindowPos(GetDlgItem(hwndMain, ID_DASHBOARD), NULL, xPos, yPos, controlWidth-controlPadding, controlHeight, flags);
     xPos += controlWidth;
 
-    ShowWindow(GetDlgItem(hwndMain, ID_DASHBOARD), bShowDashboardButton ? SW_SHOW : SW_HIDE);
+    UpdateDashboardButton();
 
     SetWindowPos(GetDlgItem(hwndMain, ID_EXIT), NULL, xPos, yPos, controlWidth-controlPadding, controlHeight, flags);
     xPos += controlWidth;
@@ -1224,6 +1217,7 @@ void OBS::ReloadIniSettings()
     // dashboard
     strDashboard = AppConfig->GetString(TEXT("Publish"), TEXT("Dashboard"));
     strDashboard.KillSpaces();
+    UpdateDashboardButton();
 
     //-------------------------------------------
     // hotkeys
@@ -1625,16 +1619,15 @@ BOOL OBS::ShowNotificationAreaIcon()
 {
     BOOL result = FALSE;
     int idIcon = (bRunning && !bTestStream) ? IDI_ICON2 : IDI_ICON1;
-    String tooltip(TEXT("OBS"));
 
     if (!bNotificationAreaIcon)
     {
         bNotificationAreaIcon = true;
-        result = SetNotificationAreaIcon(NIM_ADD, idIcon, tooltip);
+        result = SetNotificationAreaIcon(NIM_ADD, idIcon, GetApplicationName());
     }
     else
     {
-        result = SetNotificationAreaIcon(NIM_MODIFY, idIcon, tooltip);
+        result = SetNotificationAreaIcon(NIM_MODIFY, idIcon, GetApplicationName());
     }
     return result;
 }
@@ -1650,4 +1643,15 @@ BOOL OBS::HideNotificationAreaIcon()
 {
     bNotificationAreaIcon = false;
     return SetNotificationAreaIcon(NIM_DELETE, 0, TEXT(""));
+}
+
+BOOL OBS::UpdateDashboardButton()
+{
+    //Are we in live stream mode, and do we have a non-empty dashboard string?
+    BOOL bStreamOutput = AppConfig->GetInt(TEXT("Publish"), TEXT("Mode")) == 0;
+    BOOL bDashboardValid = strDashboard.IsValid();
+
+    BOOL bShowDashboardButton = bPanelVisible && bStreamOutput && bDashboardValid;
+
+    return ShowWindow(GetDlgItem(hwndMain, ID_DASHBOARD), bShowDashboardButton ? SW_SHOW : SW_HIDE);
 }

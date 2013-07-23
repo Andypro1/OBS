@@ -176,6 +176,7 @@ public:
     virtual String GetInfoString() const=0;
 
     virtual bool isQSV() { return false; }
+    virtual int GetBufferedFrames() { return 0; }
 };
 
 //-------------------------------------------------------------------
@@ -585,6 +586,7 @@ private:
     bool    bShowFPS;
     bool    bMouseMoved;
     bool    bMouseDown;
+    bool    bRMouseDown;
     bool    bItemWasSelected;
     Vect2   startMousePos, lastMousePos;
     ItemModifyType modifyType;
@@ -769,6 +771,9 @@ private:
 
     //---------------------------------------------------
 
+    void AppendModifyListbox(HWND hwnd, HMENU hMenu, int id, int numItems, bool bSelected);
+    void TrackModifyListbox(HWND hwnd, int ret);
+
     void DeleteItems();
     void SetSourceOrder(StringList &sourceNames);
     void MoveSourcesUp();
@@ -808,7 +813,7 @@ private:
     static Vect2 GetFrameToWindowScale();
 
     // helper to valid crops as you scale items
-    static bool EnsureCropValid(SceneItem *&item, Vect2 &minSize, Vect2 &snapSize, bool bControlDown, BYTE cropEdges);
+    static bool EnsureCropValid(SceneItem *&scaleItem, Vect2 &minSize, Vect2 &snapSize, bool bControlDown, int cropEdges, bool cropSymmetric);
 
     static INT_PTR CALLBACK EnterGlobalSourceNameDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK EnterSourceNameDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -843,6 +848,9 @@ private:
 
     static void AddProfilesToMenu(HMENU menu);
     static void ResetProfileMenu();
+
+    static String GetApplicationName();
+    static void ResetApplicationName();
 
     void SetStatusBarData();
 
@@ -985,6 +993,8 @@ public:
     BOOL ShowNotificationAreaIcon();
     BOOL UpdateNotificationAreaIcon();
     BOOL HideNotificationAreaIcon();
+
+    BOOL UpdateDashboardButton();
 };
 
 LONG CALLBACK OBSExceptionHandler (PEXCEPTION_POINTERS exceptionInfo);

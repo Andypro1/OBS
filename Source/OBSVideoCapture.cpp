@@ -131,10 +131,16 @@ bool OBS::ProcessFrame(FrameProcessInfo &frameInfo)
     VideoSegment curSegment;
     bool bProcessedFrame, bSendFrame = false;
     int curCTSOffset = 0;
+    VOID *picIn;
 
     profileIn("call to encoder");
 
-    videoEncoder->Encode(frameInfo.pic->picOut ? (LPVOID)frameInfo.pic->picOut : (LPVOID)frameInfo.pic->mfxOut, videoPackets, videoPacketTypes, bufferedTimes[0], ctsOffset);
+    if (!bRunning)
+        picIn = NULL;
+    else
+        picIn = frameInfo.pic->picOut ? (LPVOID)frameInfo.pic->picOut : (LPVOID)frameInfo.pic->mfxOut;
+
+    videoEncoder->Encode(picIn, videoPackets, videoPacketTypes, bufferedTimes[0], ctsOffset);
     if(bUsing444) frameInfo.prevTexture->Unmap(0);
 
     ctsOffsets << ctsOffset;
@@ -330,11 +336,19 @@ void OBS::MainCaptureLoop()
                 x264_picture_alloc(outPics[i].picOut, X264_CSP_NV12, outputCX, outputCY);
     }
 
+    int bCongestionControl = AppConfig->GetInt (TEXT("Video Encoding"), TEXT("CongestionControl"), 0);
+    bool bDynamicBitrateSupported = App->GetVideoEncoder()->DynamicBitrateSupported();
+    int defaultBitRate = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("MaxBitrate"), 1000);
+    int currentBitRate = defaultBitRate;
+    QWORD lastAdjustmentTime = 0;
+    UINT adjustmentStreamId = 0;
+
     //----------------------------------------
     // time/timestamp stuff
 
     bufferedTimes.Clear();
     ctsOffsets.Clear();
+    int bufferedFrames = 1; //to avoid constantly polling number of frames
 
 #ifdef USE_100NS_TIME
     QWORD streamTimeStart = GetQPCTime100NS();
@@ -418,6 +432,7 @@ void OBS::MainCaptureLoop()
             convertInfo[i].endY = ((outputCY/numThreads)*(i+1)) & 0xFFFFFFFE;
     }
 
+    bool bEncode;
     bool bFirstFrame = true;
     bool bFirstImage = true;
     bool bFirst420Encode = true;
@@ -449,7 +464,7 @@ void OBS::MainCaptureLoop()
     List<ProfilerNode> threadedProfilers;
     bool bUsingThreadedProfilers = false;
 
-    while(bRunning)
+    while(bRunning || (bEncode && bufferedFrames))
     {
 #ifdef USE_100NS_TIME
         QWORD renderStartTime = GetQPCTime100NS();
@@ -495,6 +510,9 @@ void OBS::MainCaptureLoop()
 
         lastStreamTime = qwTime;
 #endif
+
+        bool bUpdateBPS = false;
+        profileIn("frame preprocessing and rendering");
 
         //------------------------------------
 
@@ -552,7 +570,6 @@ void OBS::MainCaptureLoop()
 
         QWORD curBytesSent = network->GetCurrentSentBytes();
         curFramesDropped = network->NumDroppedFrames();
-        bool bUpdateBPS = false;
 
         bpsTime += fSeconds;
         if(bpsTime > 1.0f)
@@ -736,12 +753,14 @@ void OBS::MainCaptureLoop()
 
         OSLeaveMutex(hSceneMutex);
 
+        profileOut;
+
         //------------------------------------
         // present/upload
 
         profileIn("video encoding and uploading");
 
-        bool bEncode = true;
+        bEncode = true;
 
         if(copyWait)
         {
@@ -937,6 +956,9 @@ void OBS::MainCaptureLoop()
 
                             ProcessFrame(frameInfo);
                         }
+
+                        if (!bRunning)
+                            bufferedFrames = videoEncoder->GetBufferedFrames ();
                     }
 
                     if(bUsing444)
@@ -991,6 +1013,51 @@ void OBS::MainCaptureLoop()
                 curYUVTexture = 0;
             else
                 curYUVTexture++;
+
+            if (bCongestionControl && bDynamicBitrateSupported && !bTestStream)
+            {
+                if (curStrain > 25)
+                {
+                    if (qwTime - lastAdjustmentTime > 1500)
+                    {
+                        if (currentBitRate > 100)
+                        {
+                            currentBitRate = (int)(currentBitRate * (1.0 - (curStrain / 400)));
+                            App->GetVideoEncoder()->SetBitRate(currentBitRate, -1);
+                            if (!adjustmentStreamId)
+                                adjustmentStreamId = App->AddStreamInfo (FormattedString(TEXT("Congestion detected, dropping bitrate to %d kbps"), currentBitRate).Array(), StreamInfoPriority_Low);
+                            else
+                                App->SetStreamInfo(adjustmentStreamId, FormattedString(TEXT("Congestion detected, dropping bitrate to %d kbps"), currentBitRate).Array());
+
+                            bUpdateBPS = true;
+                        }
+
+                        lastAdjustmentTime = qwTime;
+                    }
+                }
+                else if (currentBitRate < defaultBitRate && curStrain < 5 && lastStrain < 5)
+                {
+                    if (qwTime - lastAdjustmentTime > 5000)
+                    {
+                        if (currentBitRate < defaultBitRate)
+                        {
+                            currentBitRate += (int)(defaultBitRate * 0.05);
+                            if (currentBitRate > defaultBitRate)
+                                currentBitRate = defaultBitRate;
+                        }
+
+                        App->GetVideoEncoder()->SetBitRate(currentBitRate, -1);
+                        /*if (!adjustmentStreamId)
+                            App->AddStreamInfo (FormattedString(TEXT("Congestion clearing, raising bitrate to %d kbps"), currentBitRate).Array(), StreamInfoPriority_Low);
+                        else
+                            App->SetStreamInfo(adjustmentStreamId, FormattedString(TEXT("Congestion clearing, raising bitrate to %d kbps"), currentBitRate).Array());*/
+
+                        bUpdateBPS = true;
+
+                        lastAdjustmentTime = qwTime;
+                    }
+                }
+            }
         }
 
         lastRenderTarget = curRenderTarget;
@@ -1008,12 +1075,14 @@ void OBS::MainCaptureLoop()
             lastFramesDropped = curFramesDropped;
         }
 
-        profileOut;
-        profileOut;
-
         //------------------------------------
         // we're about to sleep so we should flush the d3d command queue
+        profileIn("flush");
         GetD3D()->Flush();
+        profileOut;
+
+        profileOut; //video encoding and uploading
+        profileOut; //frame
 
         //------------------------------------
         // frame sync
