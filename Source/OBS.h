@@ -24,8 +24,11 @@ class SettingsPane;
 
 #define NUM_RENDER_BUFFERS 2
 
-static const int minClientWidth  = 700;
+static const int minClientWidth  = 640;
 static const int minClientHeight = 275;
+
+static const int defaultClientWidth  = 640;
+static const int defaultClientHeight = 553;
 
 enum edges {
     edgeLeft = 0x01,
@@ -555,6 +558,7 @@ private:
     bool    bTestStream;
     bool    bUseMultithreadedOptimizations;
     bool    bRunning;
+    bool    bShutdownMainThread;
     int     renderFrameWidth, renderFrameHeight; // The size of the preview only
     int     renderFrameX, renderFrameY; // The offset of the preview inside the preview control
     int     renderFrameCtrlWidth, renderFrameCtrlHeight; // The size of the entire preview control
@@ -650,6 +654,7 @@ private:
 
     static DWORD STDCALL MainCaptureThread(LPVOID lpUnused);
     bool BufferVideoData(const List<DataPacket> &inputPackets, const List<PacketType> &inputTypes, DWORD timestamp, VideoSegment &segmentOut);
+    void SendFrame(VideoSegment &curSegment, QWORD firstFrameTime, int curCTFOffset);
     bool ProcessFrame(FrameProcessInfo &frameInfo);
     void MainCaptureLoop();
 
@@ -828,7 +833,7 @@ private:
 
     void ResizeRenderFrame(bool bRedrawRenderFrame);
     void UpdateRenderViewMessage();
-    void ProcessPanelVisibile(bool fromResizeWindow = false);
+    void ProcessPanelVisible(bool fromResizeWindow = false);
 
     void ToggleCapturing();
 

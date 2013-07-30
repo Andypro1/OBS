@@ -116,6 +116,8 @@ RTMPPublisher::RTMPPublisher()
     }
     else
         lowLatencyMode = LL_MODE_NONE;
+    
+    bFastInitialKeyframe = AppConfig->GetInt(TEXT("Publish"), TEXT("FastInitialKeyframe"), 0) == 1;
 
     strRTMPErrors.Clear();
 }
@@ -159,13 +161,15 @@ bool RTMPPublisher::Init(RTMP *rtmpIn, UINT tcpBufferSize)
     hBufferSpaceAvailableEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     hWriteEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-    hSendLoopExit = CreateEvent(NULL, FALSE, FALSE, NULL);
-    hSocketLoopExit = CreateEvent(NULL, FALSE, FALSE, NULL);
+    hSendLoopExit = CreateEvent(NULL, TRUE, FALSE, NULL);
+    hSocketLoopExit = CreateEvent(NULL, TRUE, FALSE, NULL);
     hSendBacklogEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
     hDataBufferMutex = OSCreateMutex();
 
     dataBufferSize = (App->GetVideoEncoder()->GetBitRate() + App->GetAudioEncoder()->GetBitRate()) / 8 * 1024;
+    if (dataBufferSize < 131072)
+        dataBufferSize = 131072;
 
     dataBuffer = (BYTE *)Allocate(dataBufferSize);
 
@@ -182,7 +186,7 @@ bool RTMPPublisher::Init(RTMP *rtmpIn, UINT tcpBufferSize)
 
 RTMPPublisher::~RTMPPublisher()
 {
-    //OSDebugOut (TEXT("*** ~RTMPPublisher (%d queued, %d buffered)\n"), queuedPackets.Num(), bufferedPackets.Num());
+    //OSDebugOut (TEXT("*** ~RTMPPublisher (%d queued, %d buffered, %d data)\n"), queuedPackets.Num(), bufferedPackets.Num(), curDataBufferLen);
     bStopping = true;
 
     //we're in the middle of connecting! wait for that to happen to avoid all manner of race conditions
@@ -192,6 +196,7 @@ RTMPPublisher::~RTMPPublisher()
         OSCloseThread(hConnectionThread);
     }
 
+    //send all remaining buffered packets, this may block since it respects timestamps
     FlushBufferedPackets ();
 
     //OSDebugOut (TEXT("%d queued after flush\n"), queuedPackets.Num());
@@ -218,6 +223,9 @@ RTMPPublisher::~RTMPPublisher()
         //mark the socket loop to shut down after the buffer is empty
         SetEvent(hSocketLoopExit);
 
+        //wake it up in case it already is empty
+        SetEvent(hBufferEvent);
+
         //wait 60 sec for it to exit
         OSTerminateThread(hSocketThread, 60000);
     }
@@ -226,18 +234,39 @@ RTMPPublisher::~RTMPPublisher()
 
     if(rtmp)
     {
-        //at this point nothing should be in the buffer, flush out what remains and make it blocking
-        FlushDataBuffer();
-
-        //disable the buffered send, so RTMP_Close writes directly to the net
-        rtmp->m_bCustomSend = 0;
-
-        //ideally we need some kind of delay here, since we just dumped several seconds worth of timestamps to the network
-        //at once, and Twitch at shows the offline screen as soon as the connection is severed even if there are
-        //pending video frames.
-
         if (RTMP_IsConnected(rtmp))
-            Sleep (500);    //for now
+        {
+            //at this point nothing should be in the buffer, flush out what remains to the net and make it blocking
+            FlushDataBuffer();
+
+            //disable the buffered send, so RTMP_* functions write directly to the net (and thus block)
+            rtmp->m_bCustomSend = 0;
+
+            //manually shut down the stream and issue a graceful socket shutdown
+            RTMP_DeleteStream(rtmp);
+
+            shutdown(rtmp->m_sb.sb_socket, SD_SEND);
+
+            //this waits for the socket shutdown to complete gracefully
+            for (;;)
+            {
+                char buff[1024];
+                int ret;
+
+                ret = recv(rtmp->m_sb.sb_socket, buff, sizeof(buff), 0);
+                if (!ret)
+                    break;
+                else if (ret == -1)
+                {
+                    Log(TEXT("~RTMPublisher: Received error %d while waiting for graceful shutdown."), WSAGetLastError());
+                    break;
+                }
+            }
+
+            //OSDebugOut(TEXT("Graceful shutdown complete.\n"));
+        }
+
+        //this closes the socket if not already done
         RTMP_Close(rtmp);
     }
 
@@ -334,6 +363,7 @@ void RTMPPublisher::InitializeBuffer()
         if (packet.type == PacketType_Audio) {
             if (bFirstAudio) {
                 audioTimeOffset = packet.timestamp;
+                OSDebugOut(TEXT("Set audio offset: %d\n"), audioTimeOffset);
                 bFirstAudio = false;
             }
 
@@ -352,11 +382,24 @@ void RTMPPublisher::InitializeBuffer()
 
 void RTMPPublisher::FlushBufferedPackets()
 {
-    unsigned i;
-    for (i = 0; i < bufferedPackets.Num(); i++)
+    if (!bufferedPackets.Num())
+        return;
+
+    QWORD startTime = GetQPCTimeMS();
+    DWORD baseTimestamp = bufferedPackets[0].timestamp;
+
+    for (unsigned int i = 0; i < bufferedPackets.Num(); i++)
     {
         TimedPacket packet;
         packet = bufferedPackets[i];
+
+        QWORD curTime;
+        do
+        {
+            curTime = GetQPCTimeMS();
+            OSSleep (1);
+        } while (curTime - startTime < packet.timestamp - baseTimestamp);
+
         SendPacketForReal(packet.data.Array(), packet.data.Num(), packet.timestamp, packet.type);
     }
 
@@ -380,11 +423,11 @@ void RTMPPublisher::ProcessPackets()
 
             DWORD curTime = OSGetTime();
 
-            if (queueDuration >= dropThreshold)
+            if (queueDuration >= dropThreshold + audioTimeOffset)
             {
                 minFramedropTimestsamp = queuedPackets.Last().timestamp;
 
-                OSDebugOut(TEXT("dropped all at %u, threshold is %u, total duration is %u\r\n"), currentBufferSize, dropThreshold, queueDuration);
+                OSDebugOut(TEXT("dropped all at %u, threshold is %u, total duration is %u, %d in queue\r\n"), currentBufferSize, dropThreshold + audioTimeOffset, queueDuration, queuedPackets.Num());
 
                 //what the hell, just flush it all for now as a test and force a keyframe 1 second after
                 while (DoIFrameDelay(false));
@@ -392,9 +435,9 @@ void RTMPPublisher::ProcessPackets()
                 if(packetWaitType > PacketType_VideoLow)
                     RequestKeyframe(1000);
             }
-            else if (queueDuration >= bframeDropThreshold && curTime-lastBFrameDropTime >= dropThreshold)
+            else if (queueDuration >= bframeDropThreshold + audioTimeOffset && curTime-lastBFrameDropTime >= dropThreshold + audioTimeOffset)
             {
-                OSDebugOut(TEXT("dropped b-frames at %u, threshold is %u, total duration is %u\r\n"), currentBufferSize, bframeDropThreshold, queueDuration);
+                OSDebugOut(TEXT("dropped b-frames at %u, threshold is %u, total duration is %u\r\n"), currentBufferSize, bframeDropThreshold + audioTimeOffset, queueDuration);
 
                 while (DoIFrameDelay(true));
 
@@ -409,21 +452,55 @@ void RTMPPublisher::ProcessPackets()
 
 void RTMPPublisher::SendPacket(BYTE *data, UINT size, DWORD timestamp, PacketType type)
 {
-    //OSDebugOut (TEXT("SendPacket (%08x)\n"), quickHash(data,size));
     if(!bConnected && !bConnecting && !bStopping)
     {
         hConnectionThread = OSCreateThread((XTHREAD)CreateConnectionThread, this);
         bConnecting = true;
     }
 
-    if (bFirstKeyframe)
+    if (bFastInitialKeyframe)
     {
-        if (!bConnected || type != PacketType_VideoHighest)
-            return;
+        if (!bConnected)
+        {
+            //while not connected, keep at most one keyframe buffered
+            if (type != PacketType_VideoHighest)
+                return;
+        
+            bufferedPackets.Clear();
+        }
 
-        firstTimestamp = timestamp;
-        bFirstKeyframe = false;
+        if (bConnected && bFirstKeyframe)
+        {
+            bFirstKeyframe = false;
+            firstTimestamp = timestamp;
+
+            //send out our buffered keyframe immediately, unless this packet happens to also be a keyframe
+            if (type != PacketType_VideoHighest && bufferedPackets.Num() == 1)
+            {
+                TimedPacket packet;
+                mcpy(&packet, &bufferedPackets[0], sizeof(TimedPacket));
+                bufferedPackets.Remove(0);
+                packet.timestamp = 0;
+
+                SendPacketForReal(packet.data.Array(), packet.data.Num(), packet.timestamp, packet.type);
+            }
+            else
+                bufferedPackets.Clear();
+        }
     }
+    else
+    {
+        if (bFirstKeyframe)
+        {
+            if (!bConnected || type != PacketType_VideoHighest)
+                return;
+
+            firstTimestamp = timestamp;
+            bFirstKeyframe = false;
+        }
+    }
+
+    //OSDebugOut (TEXT("%u: SendPacket (%d bytes - %08x @ %u)\n"), OSGetTime(), size, quickHash(data,size), timestamp);
 
     if (bufferedPackets.Num() == MAX_BUFFERED_PACKETS)
     {
@@ -470,7 +547,7 @@ void RTMPPublisher::SendPacket(BYTE *data, UINT size, DWORD timestamp, PacketTyp
 
 void RTMPPublisher::SendPacketForReal(BYTE *data, UINT size, DWORD timestamp, PacketType type)
 {
-    //OSDebugOut (TEXT("SendPacketForReal (%08x)\n"), quickHash(data,size));
+    //OSDebugOut (TEXT("%u: SendPacketForReal (%d bytes - %08x @ %u, type %d)\n"), OSGetTime(), size, quickHash(data,size), timestamp, type);
     //Log(TEXT("packet| timestamp: %u, type: %u, bytes: %u"), timestamp, (UINT)type, size);
 
     OSEnterMutex(hDataMutex);
@@ -914,6 +991,7 @@ int RTMPPublisher::FlushDataBuffer()
     //OSDebugOut (TEXT("*** ~RTMPPublisher FlushDataBuffer (%d)\n"), curDataBufferLen);
     
     //make it blocking again
+    WSAEventSelect(rtmp->m_sb.sb_socket, NULL, 0);
     ioctlsocket(rtmp->m_sb.sb_socket, FIONBIO, &zero);
 
     OSEnterMutex(hDataBufferMutex);
@@ -1031,7 +1109,7 @@ void RTMPPublisher::SocketLoop()
             if (networkEvents.lNetworkEvents & FD_CLOSE)
             {
                 if (bStopping)
-                    Log(TEXT("RTMPPublisher::SocketLoop: Aborting due to FD_CLOSE during shutdown, buffered data lost, error %d"), networkEvents.iErrorCode[FD_CLOSE_BIT]);
+                    Log(TEXT("RTMPPublisher::SocketLoop: Aborting due to FD_CLOSE during shutdown, %d bytes lost, error %d"), curDataBufferLen, networkEvents.iErrorCode[FD_CLOSE_BIT]);
                 else
                     Log(TEXT("RTMPPublisher::SocketLoop: Aborting due to FD_CLOSE, error %d"), networkEvents.iErrorCode[FD_CLOSE_BIT]);
                 FatalSocketShutdown ();
@@ -1085,7 +1163,7 @@ void RTMPPublisher::SocketLoop()
                 {
                     int bufferSize = (int)idealSendBacklog;
                     setsockopt(rtmp->m_sb.sb_socket, SOL_SOCKET, SO_SNDBUF, (const char *)&bufferSize, sizeof(bufferSize));
-                    Log(TEXT("RTMPPublisher::Socketloop: Increasing socket send buffer to ISB %d"), idealSendBacklog);
+                    Log(TEXT("RTMPPublisher::Socketloop: Increasing send buffer to ISB %d (buffer: %d / %d)"), idealSendBacklog, curDataBufferLen, dataBufferSize);
                 }
             }
 

@@ -252,7 +252,7 @@ void MMDeviceAudioSource::StartCapture()
         UINT64 freq;
         mmClock->GetFrequency(&freq);
 
-        Log(TEXT("frequency for device '%s' is %llu, samples per sec is %u"), GetDeviceName(), freq, this->GetSamplesPerSec());
+        Log(TEXT("MMDeviceAudioSource: Frequency for device '%s' is %llu, samples per sec is %u"), GetDeviceName(), freq, this->GetSamplesPerSec());
     }
 }
 
@@ -407,13 +407,13 @@ bool MMDeviceAudioSource::GetNextBuffer(void **buffer, UINT *numFrames, QWORD *t
     *buffer = (void*)inputBuffer.Array();
     *timestamp = firstTimestamp;
 
-    if (bIsMic) {
+    /*if (bIsMic) {
         static QWORD lastTimestamp = 0;
         if (firstTimestamp != lastTimestamp+10)
             Log(TEXT("A: %llu, difference: %llu"), firstTimestamp, firstTimestamp-lastTimestamp);
 
         lastTimestamp = firstTimestamp;
-    }
+    }*/
 
     return true;
 }

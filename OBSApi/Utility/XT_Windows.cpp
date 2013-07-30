@@ -712,7 +712,12 @@ BOOL   STDCALL OSTerminateThread(HANDLE hThread, DWORD waitMS)
 
     if(WaitForSingleObjectEx(hThread, waitMS, 0) == WAIT_TIMEOUT)
     {
-        Log (TEXT("WARNING: Forcibly terminated a thread after %d ms timeout!"));
+        Log (TEXT("WARNING: Forcibly terminating a thread after %d ms timeout!"), waitMS);
+
+        //force a crash report. if we're terminating threads, something terribly wrong is happening, best
+        //to get a report of that rather than let corruption from thread termination continue to propagate
+        //and cause harder to debug errors.
+        DebugBreak ();
         TerminateThread(hThread, 0);
     }
 
@@ -765,6 +770,9 @@ BOOL   STDCALL OSIncompatiblePatchesLoaded(String &errors)
     //TeamSpeak 3 Overlay (hooks CreateDXGIFactory1 in such a way that it fails when called by OBS)
     //Webroot Secureanywhere (hooks GDI calls and prevents OBS from screen capturing among other issues)
 
+    bool ts3_hook_present = false;
+
+    //Older plugin version hooks DXGI
     HMODULE dxGI = GetModuleHandle(TEXT("DXGI.DLL"));
     if (dxGI)
     {
@@ -780,12 +788,62 @@ BOOL   STDCALL OSIncompatiblePatchesLoaded(String &errors)
                     if (moduleList.HasValue(TEXT("ts3overlay_hook_win32.dll")) ||
                         moduleList.HasValue(TEXT("ts3overlay_hook_win64.dll")))
                     {
-                        errors << TEXT("TeamSpeak 3 overlay has loaded into OBS and will cause problems. Please set \"Disable Loading\" for OBS.EXE in your TeamSpeak 3 overlay settings or visit http://bit.ly/OBSTS3 for help."); 
-                        ret = TRUE;
+                        ts3_hook_present = true;
                     }
                 }
             }
         }
+    }
+
+    //Newer plugin hooks D3D
+    HMODULE d3d = GetModuleHandle(TEXT("d3d10_1.dll"));
+    if (d3d)
+    {
+        FARPROC createDevice = GetProcAddress(d3d, "D3D10CreateDeviceAndSwapChain1");
+        if (createDevice)
+        {
+            if (!IsBadReadPtr(createDevice, 5))
+            {
+                BYTE opCode = *(BYTE *)createDevice;
+
+                if (opCode == 0xE9)
+                {
+                    if (moduleList.HasValue(TEXT("ts3overlay_hook_win32.dll")) ||
+                        moduleList.HasValue(TEXT("ts3overlay_hook_win64.dll")))
+                    {
+                        ts3_hook_present = true;
+                    }
+                }
+            }
+        }
+    }
+
+    d3d = GetModuleHandle(TEXT("d3d11.dll"));
+    if (d3d)
+    {
+        FARPROC createDevice = GetProcAddress(d3d, "D3D11CreateDeviceAndSwapChain");
+        if (createDevice)
+        {
+            if (!IsBadReadPtr(createDevice, 5))
+            {
+                BYTE opCode = *(BYTE *)createDevice;
+
+                if (opCode == 0xE9)
+                {
+                    if (moduleList.HasValue(TEXT("ts3overlay_hook_win32.dll")) ||
+                        moduleList.HasValue(TEXT("ts3overlay_hook_win64.dll")))
+                    {
+                        ts3_hook_present = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if (ts3_hook_present)
+    {
+        errors << TEXT("TeamSpeak 3 overlay has loaded into OBS and will cause crashing and instability. Please set \"Disable Loading\" for OBS.EXE in your TeamSpeak 3 overlay settings or visit http://bit.ly/OBSTS3 for help."); 
+        ret = TRUE;
     }
 
     //I'm just going to make this a warning that pops up when the app starts instead of actually preventing people from using the app
@@ -836,10 +894,14 @@ BOOL   STDCALL OSIncompatibleModulesLoaded()
             !scmp(moduleName, TEXT("dxtorycore64.dll")) ||      //DXTory
             !scmp(moduleName, TEXT("dxtorymm.dll")) ||          //DXTory
             !scmp(moduleName, TEXT("dxtorymm64.dll")) ||        //DXTory
-            !scmp(moduleName, TEXT("atkdx11disp.dll")) ||       //ASUS OSD
             !scmp(moduleName, TEXT("rtsshooks.dll")))           //EVGA Precision OSD
         {
             return 1;
+        }
+        else if (!scmp(moduleName, TEXT("atkdx11disp.dll")))     //ASUS GamerOSD
+        {
+            //ASUS GamerOSD is so terrible we can't even cleanly shutdown once it loads, trying to unload D3D crashes too (!)
+            CrashError (TEXT("ASUS GamerOSD has been detected. This program installs user mode driver hooks which will corrupt the Direct3D state and crash OBS. Please uninstall ASUS GamerOSD if you wish to use OBS."));
         }
     }
 

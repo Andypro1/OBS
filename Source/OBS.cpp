@@ -216,8 +216,8 @@ OBS::OBS()
     borderYSize += GetSystemMetrics(SM_CYMENU);
     borderYSize += GetSystemMetrics(SM_CYCAPTION);
 
-    clientWidth  = GlobalConfig->GetInt(TEXT("General"), TEXT("Width"),  700);
-    clientHeight = GlobalConfig->GetInt(TEXT("General"), TEXT("Height"), 553);
+    clientWidth  = GlobalConfig->GetInt(TEXT("General"), TEXT("Width"),  defaultClientWidth);
+    clientHeight = GlobalConfig->GetInt(TEXT("General"), TEXT("Height"), defaultClientHeight);
 
     if(clientWidth < minClientWidth)
         clientWidth = minClientWidth;
@@ -942,7 +942,7 @@ void OBS::SetFullscreenMode(bool fullscreen)
 /**
  * Show or hide the control panel.
  */
-void OBS::ProcessPanelVisibile(bool fromResizeWindow)
+void OBS::ProcessPanelVisible(bool fromResizeWindow)
 {
     if(bPanelVisibleProcessed)
         return; // Already done
@@ -1037,7 +1037,7 @@ void OBS::ResizeWindow(bool bRedrawRenderFrame)
 
     // Don't waste time resizing invisible controls
     if(!bPanelVisibleProcessed)
-        ProcessPanelVisibile(true);
+        ProcessPanelVisible(true);
     if(!bPanelVisible)
         return;
 

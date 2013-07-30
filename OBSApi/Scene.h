@@ -37,6 +37,9 @@ public:
     virtual void BeginScene() {}
     virtual void EndScene() {}
 
+    virtual void GlobalSourceLeaveScene() {}
+    virtual void GlobalSourceEnterScene() {}
+
     virtual void SetFloat(CTSTR lpName, float fValue) {}
     virtual void SetInt(CTSTR lpName, int iValue) {}
     virtual void SetString(CTSTR lpName, CTSTR lpVal) {}
@@ -96,7 +99,7 @@ public:
     inline Vect2 GetPos() const                 {return pos;}
     inline Vect2 GetSize() const                {return size;}
     inline Vect2 GetScale() const               {return source ? (source->GetSize() / size) : Vect2(1.0f, 1.0f);}
-    
+
     inline bool IsCropped() const               {return !(CloseFloat(crop.w, 0.0f) && CloseFloat(crop.x, 0.0f) && CloseFloat(crop.y, 0.0f) && CloseFloat(crop.z, 0.0f));}
 
     inline void SetPos(const Vect2 &newPos)     {pos = newPos;}
@@ -114,7 +117,7 @@ public:
     Vect2 GetCropTR();
     Vect2 GetCropBR();
     Vect2 GetCropBL();
-    
+
     void Update();
 
     void MoveUp();
