@@ -296,6 +296,8 @@ public:
         bUseCFR = bUseCFR_;
         bDupeFrames = bDupeFrames_;
 
+        UINT keyframeInterval = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("KeyframeInterval"), 6);
+
         memset(&params, 0, sizeof(params));
         params.mfx.CodecId = MFX_CODEC_AVC;
         params.mfx.TargetUsage = MFX_TARGETUSAGE_BEST_QUALITY;
@@ -303,9 +305,8 @@ public:
         params.mfx.MaxKbps = maxBitrate;
         params.mfx.BufferSizeInKB = bufferSize/8;
         params.mfx.GopOptFlag = MFX_GOP_CLOSED;
-        params.mfx.GopPicSize = 250;
+        params.mfx.GopPicSize = fps*keyframeInterval;
         params.mfx.GopRefDist = 8;
-        params.mfx.IdrInterval = 0;
         params.mfx.NumSlice = 1;
 
         params.mfx.RateControlMethod = bUseCBR ? MFX_RATECONTROL_CBR : MFX_RATECONTROL_VBR;
@@ -831,8 +832,11 @@ public:
                 i++;
                 continue;
             }
-            task.frame->MemId = 0;
-            task.frame->Locked -= 1;
+            if(task.frame)
+            {
+                task.frame->MemId = 0;
+                task.frame->Locked -= 1;
+            }
             task.sp = nullptr;
             idle_tasks << msdk_locked_tasks[i];
             msdk_locked_tasks.Remove(i);
@@ -901,14 +905,15 @@ public:
         while(!idle_tasks.Num());
         profileOut;
 
-        if (!picInPtr)
-            return true;
-
-        mfxFrameSurface1& pic = *(mfxFrameSurface1*)picInPtr;
-        QueueEncodeTask(pic);
+        if(picInPtr)
+        {
+            mfxFrameSurface1& pic = *(mfxFrameSurface1*)picInPtr;
+            QueueEncodeTask(pic);
+        }
 
         profileIn("EncodeFrameAsync");
-        while(queued_tasks.Num())
+
+        while(picInPtr && queued_tasks.Num())
         {
             encode_task& task = encode_tasks[queued_tasks[0]];
             mfxBitstream& bs = task.bs;
@@ -928,6 +933,23 @@ public:
             encoded_tasks << queued_tasks[0];
             queued_tasks.Remove(0);
         }
+
+        while(!picInPtr && !queued_tasks.Num() && (encoded_tasks.Num() || msdk_locked_tasks.Num()))
+        {
+            if(idle_tasks.Num() <= 1)
+                return true;
+            encode_task& task = encode_tasks[idle_tasks[0]];
+            task.bs.DataOffset = 0;
+            task.bs.DataLength = 0;
+            auto sts = enc->EncodeFrameAsync(nullptr, nullptr, &task.bs, &task.sp);
+            if(sts == MFX_ERR_MORE_DATA)
+                break;
+            if(!task.sp)
+                continue;
+            encoded_tasks << idle_tasks[0];
+            idle_tasks.Remove(0);
+        }
+
         profileOut;
 
         return true;
@@ -1027,6 +1049,11 @@ public:
     }
 
     virtual bool isQSV() { return true; }
+
+    virtual bool HasBufferedFrames()
+    {
+        return (msdk_locked_tasks.Num() + encoded_tasks.Num() + queued_tasks.Num()) > 0;
+    }
 };
 
 VideoEncoder* CreateQSVEncoder(int fps, int width, int height, int quality, CTSTR preset, bool bUse444, int maxBitRate, int bufferSize, bool bUseCFR, bool bDupeFrames)

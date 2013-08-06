@@ -353,7 +353,7 @@ void OBS::MainCaptureLoop()
 
     bufferedTimes.Clear();
     ctsOffsets.Clear();
-    int bufferedFrames = 1; //to avoid constantly polling number of frames
+    bool bufferedFrames = true; //to avoid constantly polling number of frames
 
 #ifdef USE_100NS_TIME
     QWORD streamTimeStart = GetQPCTime100NS();
@@ -963,7 +963,7 @@ void OBS::MainCaptureLoop()
                         }
 
                         if (bShutdownMainThread)
-                            bufferedFrames = videoEncoder->GetBufferedFrames ();
+                            bufferedFrames = videoEncoder->HasBufferedFrames();
                     }
 
                     if(bUsing444)
@@ -1001,6 +1001,8 @@ void OBS::MainCaptureLoop()
                             message = TEXT("DXGI_ERROR_DEVICE_REMOVED");
                             break;
                         }
+
+                        message << TEXT(" This error can also occur if you have enabled opencl in x264 custom settings.");
 
                         CrashError (TEXT("Texture->Map failed: 0x%08x 0x%08x\r\n\r\n%s"), result, reason, message.Array());
                     }
