@@ -320,6 +320,10 @@ QWORD MMDeviceAudioSource::GetTimestamp(QWORD qpcTimestamp)
     }
 }
 
+//how often we have to see repeating available packets before we drop packets.
+//this is primarily due to worthless mic sampling issues and where mic data comes in big bursts.
+#define HOW_OFTEN_I_GET_ANGRY 30
+
 bool MMDeviceAudioSource::GetNextBuffer(void **buffer, UINT *numFrames, QWORD *timestamp)
 {
     UINT captureSize = 0;
@@ -343,7 +347,7 @@ bool MMDeviceAudioSource::GetNextBuffer(void **buffer, UINT *numFrames, QWORD *t
                 if (captureSize > 0) {
                     ++numTimesInARowNewDataSeen;
 
-                    if (numTimesInARowNewDataSeen > 1000) {
+                    if (numTimesInARowNewDataSeen > HOW_OFTEN_I_GET_ANGRY) {
                         if (SUCCEEDED(mmCapture->GetBuffer(&captureBuffer, &numFramesRead, &dwFlags, &devPosition, &qpcTimestamp))) {
                             mmCapture->ReleaseBuffer(numFramesRead);
                             numTimesInARowNewDataSeen = 0;
