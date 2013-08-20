@@ -275,7 +275,7 @@ BOOL LocaleStringLookup::LoadStringFile(CTSTR lpFile, bool bClear)
         //----------
 
         TSTR lpValueStart = lpTemp;
-        while(*lpValueStart && *lpValueStart != ' ' && *lpValueStart != L'　' && *lpValueStart != '\t')
+        while(*lpValueStart && *lpValueStart != '=')
             ++lpValueStart;
 
         String lookupVal, strVal;
@@ -284,8 +284,9 @@ BOOL LocaleStringLookup::LoadStringFile(CTSTR lpFile, bool bClear)
         *lpValueStart = 0;
         lookupVal = lpTemp;
         *lpValueStart = prevChar;
+        lookupVal.KillSpaces();
 
-        String value = lpValueStart;
+        String value = ++lpValueStart;
         value.KillSpaces();
         if(value.IsValid() && value[0] == '"')
         {
@@ -493,6 +494,8 @@ LocaleNativeName nativeNames[] =
     {TEXT("or"), TEXT("ଓଡ଼ିଆ")},
     {TEXT("os"), TEXT("Ирон æвзаг")},
     {TEXT("pa"), TEXT("ਪੰਜਾਬੀ, پنجابی")},
+	// reserving this region code, but not displaying it in the UI until the translation is more complete :D
+	// {TEXT("pe"), TEXT("Pirate English")},
     {TEXT("pi"), TEXT("पाऴि ")},
     {TEXT("pl"), TEXT("polski")},
     {TEXT("ps"), TEXT("پښتو")},

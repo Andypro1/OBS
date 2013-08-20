@@ -104,12 +104,12 @@ bool CompareMemory(const LPVOID lpVal1, const LPVOID lpVal2, UINT nBytes)
 
 #ifdef _WIN64
 
-#define NUM_KNOWN_PATCHES 5
+#define NUM_KNOWN_PATCHES 4
 #define PATCH_COMPARE_SIZE 13
-UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {0x4B55F, 0x54FE6, 0x550C5, 0x8BDB5, 0x1841E5};
+UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {/*0x4B55F,*/ 0x54FE6, 0x550C5, 0x8BDB5, 0x1841E5};
 BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
 {
-    {0x48, 0x8b, 0x81, 0xc8, 0x38, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //winvis - 6.0.6002.18005
+    //{0x48, 0x8b, 0x81, 0xc8, 0x38, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //winvis - 6.0.6002.18005
     {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //win7   - 6.1.7600.16385
     {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0x98, 0x68, 0x50, 0x00, 0x00},  //win7   - 6.1.7601.17514
     {0x48, 0x8b, 0x81, 0xb8, 0x3d, 0x00, 0x00, 0x39, 0xB0, 0x28, 0x51, 0x00, 0x00},  //win8.1 - 6.3.9431.00000
@@ -119,7 +119,7 @@ BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
 #define PATCH_SIZE 2
 BYTE patch[NUM_KNOWN_PATCHES][PATCH_SIZE] =
 {
-    {0xEB, 0x12},
+    //{0xEB, 0x12},
     {0xEB, 0x12},
     {0xEB, 0x12},
     {0x90, 0x90},
@@ -128,12 +128,12 @@ BYTE patch[NUM_KNOWN_PATCHES][PATCH_SIZE] =
 
 #else
 
-#define NUM_KNOWN_PATCHES 5
+#define NUM_KNOWN_PATCHES 4
 #define PATCH_COMPARE_SIZE 12
-UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {0x4BDA1, 0x79C9E, 0x79D96, 0x7F9BD, 0x166A08};
+UPARAM patch_offsets[NUM_KNOWN_PATCHES] = {/*0x4BDA1,*/ 0x79C9E, 0x79D96, 0x7F9BD, 0x166A08};
 BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
 {
-    {0x8b, 0x89, 0x6c, 0x27, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //winvis - 6.0.6002.18005
+    //{0x8b, 0x89, 0x6c, 0x27, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //winvis - 6.0.6002.18005
     {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7   - 6.1.7600.16385
     {0x8b, 0x89, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb9, 0x80, 0x4b, 0x00, 0x00},  //win7   - 6.1.7601.17514
     {0x8b, 0x80, 0xe8, 0x29, 0x00, 0x00, 0x39, 0xb0, 0x40, 0x4c, 0x00, 0x00},  //win8.1 - 6.3.9431.00000
@@ -143,7 +143,7 @@ BYTE patch_compare[NUM_KNOWN_PATCHES][PATCH_COMPARE_SIZE] =
 #define PATCH_SIZE 1
 BYTE patch[NUM_KNOWN_PATCHES][PATCH_SIZE] =
 {
-    {0xEB},
+    //{0xEB, 0x02},
     {0xEB},
     {0xEB},
     {0xEB},
@@ -342,27 +342,6 @@ void DoD3D9GPUHook(IDirect3DDevice9 *device)
 
     //------------------------------------------------
 
-    IDirect3DSurface9 *backBuffer;
-    hErr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
-    if (FAILED(hErr)) {
-        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9GPUHook: Could not get back buffer, result = " << (UINT)hErr << endl;
-        goto finishGPUHook;
-    }
-
-    D3DSURFACE_DESC sd;
-    ZeroMemory(&sd, sizeof(sd));
-    if (FAILED(hErr = backBuffer->GetDesc(&sd))) {
-        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9GPUHook: Could not get back buffer surface info, result = " << (UINT)hErr << endl;
-        goto finishGPUHook;
-    }
-
-    //sometimes the backbuffer does not actually match the swap chain size,
-    //so you have to use the backbuffer size to get the right value
-    d3d9CaptureInfo.cx = sd.Width;
-    d3d9CaptureInfo.cy = sd.Height;
-    backBuffer->Release();
-
-    //------------------------------------------------
     D3D10_TEXTURE2D_DESC texGameDesc;
     ZeroMemory(&texGameDesc, sizeof(texGameDesc));
     texGameDesc.Width               = d3d9CaptureInfo.cx;
@@ -494,33 +473,8 @@ void DoD3D9CPUHook(IDirect3DDevice9 *device)
 
     //------------------------------------------------
 
-    IDirect3DSurface9 *backBuffer = NULL;
-    D3DSURFACE_DESC sd;
-    ZeroMemory(&sd, sizeof(sd));
-
-    hErr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
-    if (FAILED(hErr)) {
-        RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: Could not get back buffer, result = " << (UINT)hErr << endl;
-        bSuccess = false;
-    }
-
     if (bSuccess)
     {
-        if (FAILED(hErr = backBuffer->GetDesc(&sd))) {
-            RUNEVERYRESET logOutput << CurrentTimeString() << "DoD3D9CPUHook: Could not get back buffer surface info, result = " << (UINT)hErr << endl;
-            bSuccess = false;
-        }
-    }
-
-    SafeRelease(backBuffer);
-
-    if (bSuccess)
-    {
-        //sometimes the backbuffer does not actually match the swap chain size,
-        //so you have to use the backbuffer size to get the right value
-        d3d9CaptureInfo.cx = sd.Width;
-        d3d9CaptureInfo.cy = sd.Height;
-
         for(UINT i=0; i<NUM_BUFFERS; i++)
         {
             if(FAILED(hErr = device->CreateOffscreenPlainSurface(d3d9CaptureInfo.cx, d3d9CaptureInfo.cy, (D3DFORMAT)d3d9Format, D3DPOOL_SYSTEMMEM, &textures[i], NULL)))

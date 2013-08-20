@@ -226,10 +226,9 @@ extern bool               bD3D9Hooked;
 #else
 extern ID3D10Device1    *shareDevice;
 extern ID3D10Resource   *copyTextureIntermediary;
+IDXGISwapChain          *swapChain = NULL;
 extern bool             bDXGIHooked;
 #endif
-
-static HWND             hwndD3DWindow  = NULL;
 
 extern BOOL             bUseSharedTextures;
 extern SharedTexData    *texData;
@@ -301,6 +300,7 @@ void ClearGLData()
         SafeRelease(d3d9ex);
 #else
         SafeRelease(copyTextureIntermediary);
+        SafeRelease(swapChain);
         SafeRelease(shareDevice);
 #endif
     } else if(bHasTextures) {
@@ -375,7 +375,7 @@ static bool DoGLGPUHook(RECT &rc)
     pp.SwapEffect               = D3DSWAPEFFECT_FLIP;
     pp.BackBufferFormat         = D3DFMT_A8R8G8B8;
     pp.BackBufferCount          = 1;
-    pp.hDeviceWindow            = hwndD3DWindow;
+    pp.hDeviceWindow            = hwndD3DDummyWindow;
     pp.PresentationInterval     = D3DPRESENT_INTERVAL_IMMEDIATE;
     pp.BackBufferHeight         = 2;
     pp.BackBufferWidth          = 2;
@@ -471,6 +471,17 @@ static bool DoGLGPUHook(RECT &rc)
 
     HRESULT hErr;
 
+	DXGI_SWAP_CHAIN_DESC swapDesc;
+	ZeroMemory(&swapDesc, sizeof(swapDesc));
+	swapDesc.BufferCount = 2;
+	swapDesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	swapDesc.BufferDesc.Width  = 2;
+	swapDesc.BufferDesc.Height = 2;
+	swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swapDesc.SampleDesc.Count = 1;
+	swapDesc.Windowed = TRUE;
+    swapDesc.OutputWindow = hwndD3DDummyWindow;
+
     HMODULE hD3D10_1 = LoadLibrary(TEXT("d3d10_1.dll"));
     if(!hD3D10_1)
     {
@@ -492,10 +503,10 @@ static bool DoGLGPUHook(RECT &rc)
         goto finishGPUHook;
     }
 
-    PFN_D3D10_CREATE_DEVICE1 d3d10CreateDevice1 = (PFN_D3D10_CREATE_DEVICE1)GetProcAddress(hD3D10_1, "D3D10CreateDevice1");
-    if(!d3d10CreateDevice1)
+    PFN_D3D10_CREATE_DEVICE_AND_SWAP_CHAIN1 d3d10CreateDeviceAndSwapChain1 = (PFN_D3D10_CREATE_DEVICE_AND_SWAP_CHAIN1)GetProcAddress(hD3D10_1, "D3D10CreateDeviceAndSwapChain1");
+    if(!d3d10CreateDeviceAndSwapChain1)
     {
-        RUNEVERYRESET logOutput << CurrentTimeString() << "DoGLGPUHook: Could not load 'D3D10CreateDevice1'" << endl;
+        RUNEVERYRESET logOutput << CurrentTimeString() << "DoGLGPUHook: Could not load 'D3D10CreateDeviceAndSwapChain1'" << endl;
         goto finishGPUHook;
     }
 
@@ -514,9 +525,9 @@ static bool DoGLGPUHook(RECT &rc)
         goto finishGPUHook;
     }
 
-    if(FAILED(hErr = (*d3d10CreateDevice1)(adapter, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_FEATURE_LEVEL_10_1, D3D10_1_SDK_VERSION, &shareDevice)))
+    if(FAILED(hErr = (*d3d10CreateDeviceAndSwapChain1)(adapter, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_FEATURE_LEVEL_10_1, D3D10_1_SDK_VERSION, &swapDesc, &swapChain, &shareDevice)))
     {
-        if(FAILED(hErr = (*d3d10CreateDevice1)(adapter, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_FEATURE_LEVEL_9_3, D3D10_1_SDK_VERSION, &shareDevice)))
+        if(FAILED(hErr = (*d3d10CreateDeviceAndSwapChain1)(adapter, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_FEATURE_LEVEL_9_3, D3D10_1_SDK_VERSION, &swapDesc, &swapChain, &shareDevice)))
         {
             RUNEVERYRESET logOutput << CurrentTimeString() << "DoGLGPUHook: Could not create D3D10.1 device, result = " << (UINT)hErr << endl;
             adapter->Release();
@@ -713,8 +724,8 @@ void DoGLCPUHook(RECT &rc)
 
 void DoGLHook(RECT &rc)
 {
-    //if (bFBOAvailable && bNVCaptureAvailable && DoGLGPUHook(rc))
-    //        return;
+    if (bFBOAvailable && bNVCaptureAvailable && DoGLGPUHook(rc))
+            return;
 
     DoGLCPUHook(rc);
 }
@@ -923,7 +934,7 @@ void HandleGLSceneUpdate(HDC hDC)
                                 wglDXUnlockObjectsNV(gl_dxDevice, 1, &gl_handle);
 
 #ifndef USE_D3D9_GL_INTEROP
-                                shareDevice->Flush();
+                                swapChain->Present(0, 0);
 #endif
                             }
                         }
@@ -1114,62 +1125,9 @@ static void RegisterFBOStuff()
         logOutput << CurrentTimeString() << "FBO available" << endl;
 }
 
-static inline HWND CreateDummyWindow(LPCTSTR lpClass, LPCTSTR lpName)
-{
-    return CreateWindowEx (0,
-        lpClass, lpName,
-        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-        0, 0,
-        1, 1,
-        NULL,
-        NULL,
-        hinstMain,
-        NULL
-        );
-}
-
 bool InitGLCapture()
 {
-    static HWND hwndOpenGLSetupWindow = NULL;
     bool bSuccess = false;
-
-    if(!hwndOpenGLSetupWindow)
-    {
-        WNDCLASSEX windowClass;
-        ZeroMemory(&windowClass, sizeof(windowClass));
-
-        windowClass.cbSize = sizeof(windowClass);
-        windowClass.style = CS_OWNDC;
-        windowClass.lpfnWndProc = DefWindowProc;
-        windowClass.lpszClassName = TEXT("OBSOGLHookClass");
-        windowClass.hInstance = hinstMain;
-
-        if(RegisterClassEx(&windowClass))
-        {
-            hwndOpenGLSetupWindow = CreateDummyWindow(
-                TEXT("OBSOGLHookClass"),
-                TEXT("OBS OpenGL Context Window")
-                );
-        }
-    }
-
-    if (!hwndD3DWindow) {
-        WNDCLASSEX windowClass;
-        ZeroMemory(&windowClass, sizeof(windowClass));
-
-        windowClass.cbSize = sizeof(windowClass);
-        windowClass.style = CS_OWNDC;
-        windowClass.lpfnWndProc = DefWindowProc;
-        windowClass.lpszClassName = TEXT("OBSDummyD3D9WndClassForTheGPUHook");
-        windowClass.hInstance = hinstMain;
-
-        if (RegisterClassEx(&windowClass)) {
-            hwndD3DWindow = CreateDummyWindow(
-                TEXT("OBSDummyD3D9WndClassForTheGPUHook"),
-                TEXT("OBS OpenGL D3D9 Temp Device Window")
-                );
-        }
-    }
 
     HMODULE hGL = GetModuleHandle(TEXT("opengl32.dll"));
     if(hGL && hwndOpenGLSetupWindow)
@@ -1251,11 +1209,6 @@ bool InitGLCapture()
                     glHookSwapLayerBuffers.Rehook();
                     glHookwglSwapBuffers.Rehook();
                     glHookDeleteContext.Rehook();
-
-                    DestroyWindow(hwndOpenGLSetupWindow);
-                    hwndOpenGLSetupWindow = NULL;
-
-                    UnregisterClass(TEXT("OBSOGLHookClass"), hinstMain);
                 }
             }
 

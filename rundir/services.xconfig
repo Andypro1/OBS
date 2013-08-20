@@ -18,16 +18,22 @@ services : {
       "US West: Los Angeles, CA"             : rtmp://live-lax.justin.tv/app
       "US West: Los Angeles, CA (Secondary)" : rtmp://live-lax-backup.justin.tv/app
     }
+    recommended : {
+      "keyint"      : 2000
+      "ratecontrol" : "cbr"
+      "max bitrate" : 4000
+      "max audio bitrate" : 160
+    }
   }
   "Vaughn Live" : {
     id : 3
     servers : {
-      "US: Chicago (Primary)"   : rtmp://live.vaughnlive.tv:443/live
-      "US: Dallas, TX"			    : rtmp://live-dal.vaughnlive.tv:443/live
-	    "US: Houston, TX"		      : rtmp://live-hou.vaughnlive.tv:443/live
-	    "US: Virginia, USA"			  : rtmp://live-iad.vaughnlive.tv:443/live
-	    "US: Salt Lake City, UT"	: rtmp://live-slc.vaughnlive.tv:443/live
-	    "EU: Frankfurt, Germany"	: rtmp://live-de.vaughnlive.tv:443/live
+      "US: Chicago (Primary)"  : rtmp://live.vaughnlive.tv:443/live
+      "US: Dallas, TX"         : rtmp://live-dal.vaughnlive.tv:443/live
+      "US: Houston, TX"        : rtmp://live-hou.vaughnlive.tv:443/live
+      "US: Virginia, USA"      : rtmp://live-iad.vaughnlive.tv:443/live
+      "US: Salt Lake City, UT" : rtmp://live-slc.vaughnlive.tv:443/live
+      "EU: Frankfurt, Germany" : rtmp://live-de.vaughnlive.tv:443/live
     }
   }
   iNSTAGIB.tv : {
@@ -60,6 +66,16 @@ services : {
     id : 8
     servers : {
       "RU Moscow" : rtmp://tgamers.ru/live
+    }
+  }
+  Youtube : {
+    id : 9
+    servers : {
+      "Primary Youtube ingest server" : rtmp://a.rtmp.youtube.com/live2
+      "Backup Youtube ingest server" : rtmp://b.rtmp.youtube.com/live2?backup=1
+    }
+    recommended : {
+      "keyint"      : 2000
     }
   }
 }
