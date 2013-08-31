@@ -190,13 +190,7 @@ public:
         this->width  = width;
         this->height = height;
 
-        //warning: messing with x264 settings without knowing what they do can seriously screw things up
-
-        //ratetol
-        //qcomp
-
-        //paramData.i_frame_reference     = 1; //ref=1
-        //paramData.i_threads             = 4;
+        paramData.b_deterministic       = false;
 
         bUseCBR = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("UseCBR"), 1) != 0;
         bPadCBR = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("PadCBR"), 1) != 0;
@@ -222,7 +216,10 @@ public:
         paramData.b_vfr_input           = !bUseCFR;
         paramData.i_width               = width;
         paramData.i_height              = height;
-        paramData.vui.b_fullrange       = 0;
+        paramData.vui.b_fullrange       = true;
+        paramData.vui.i_colorprim       = 1;
+        paramData.vui.i_transfer        = 1;
+        paramData.vui.i_colmatrix       = 1;
 
         if (keyframeInterval)
             paramData.i_keyint_max          = fps*keyframeInterval;
@@ -545,12 +542,12 @@ public:
                    TEXT("\r\n    preset: ")      << curPreset <<
                    TEXT("\r\n    CBR: ")         << CTSTR((bUseCBR) ? TEXT("yes") : TEXT("no")) <<
                    TEXT("\r\n    CFR: ")         << CTSTR((bUseCFR) ? TEXT("yes") : TEXT("no")) <<
-                   TEXT("\r\n    max bitrate: ") << IntString(paramData.rc.i_vbv_max_bitrate);
+                   TEXT("\r\n    max bitrate: ") << IntString(paramData.rc.i_vbv_max_bitrate) <<
+                   TEXT("\r\n    buffer size: ") << IntString(paramData.rc.i_vbv_buffer_size);
 
         if(!bUseCBR)
         {
-            strInfo << TEXT("\r\n    buffer size: ") << IntString(paramData.rc.i_vbv_buffer_size) << 
-                       TEXT("\r\n    quality: ")     << IntString(10-int(paramData.rc.f_rf_constant-baseCRF));
+            strInfo << TEXT("\r\n    quality: ")     << IntString(10-int(paramData.rc.f_rf_constant-baseCRF));
         }
 
         return strInfo;
