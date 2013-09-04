@@ -66,6 +66,7 @@ enum
     ID_LISTBOX_ADD,
 
     ID_LISTBOX_GLOBALSOURCE=5000,
+    ID_PROJECTOR=6000,
 };
 
 INT_PTR CALLBACK OBS::EnterSourceNameDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -699,7 +700,15 @@ void OBS::TrackModifyListbox(HWND hwnd, int ret)
 
         // Sources below here
         default:
-            if(ret >= ID_LISTBOX_ADD)
+            if (ret >= ID_PROJECTOR)
+            {
+                UINT monitorID = ret-ID_PROJECTOR;
+                if (monitorID == 0)
+                    App->bPleaseDisableProjector = true;
+                else
+                    EnableProjector(monitorID-1);
+            }
+            else if(ret >= ID_LISTBOX_ADD)
             {
                 App->EnableSceneSwitching(false);
 
@@ -3168,6 +3177,32 @@ bool OBS::EnsureCropValid(SceneItem *&scaleItem, Vect2 &minSize, Vect2 &snapSize
     return true;
 }
 
+LRESULT CALLBACK OBS::ProjectorFrameProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message) {
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE)
+            App->bPleaseDisableProjector = true;
+        break;
+
+    case WM_CLOSE:
+        App->bPleaseDisableProjector = true;
+        break;
+
+    case WM_SETCURSOR:
+        if (App->bEnableProjectorCursor)
+            return DefWindowProc(hwnd, message, wParam, lParam);
+        else
+            SetCursor(NULL);
+        break;
+
+    default:
+        return DefWindowProc(hwnd, message, wParam, lParam);
+    }
+
+    return 0;
+}
+
 LRESULT CALLBACK OBS::RenderFrameProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     HWND hwndSources = GetDlgItem(hwndMain, ID_SOURCES);
@@ -3946,6 +3981,33 @@ LRESULT CALLBACK OBS::RenderFrameProc(HWND hwnd, UINT message, WPARAM wParam, LP
         if(message == WM_RBUTTONUP)
         {
             HMENU hPopup = CreatePopupMenu();
+
+            //---------------------------------------------------
+
+            if (App->bRunning) {
+                HMENU hProjector = CreatePopupMenu();
+                AppendMenu(hProjector, MF_STRING | (App->bProjector ? 0 : MF_CHECKED),
+                        ID_PROJECTOR, Str("Disable"));
+                AppendMenu(hProjector, MF_SEPARATOR, 0, 0);
+                for (UINT i = 0; i < App->NumMonitors(); i++) {
+                    String strMonitor = Str("MonitorNum");
+                    strMonitor.FindReplace(L"$1", UIntString(i+1));
+
+                    const MonitorInfo &mi = App->GetMonitor(i);
+
+                    bool grayed = mi.hMonitor == MonitorFromWindow(hwndMain, MONITOR_DEFAULTTONULL);
+
+                    bool enabled = App->bProjector && App->projectorMonitorID == i;
+
+                    AppendMenu(hProjector, MF_STRING | (enabled ? MF_CHECKED : 0) | (grayed ? MF_GRAYED : 0),
+                            ID_PROJECTOR+i+1, strMonitor);
+                }
+
+                AppendMenu(hPopup, MF_STRING|MF_POPUP, (UINT_PTR)hProjector, Str("MainMenu.Settings.Projector"));
+                AppendMenu(hPopup, MF_SEPARATOR, 0, 0);
+            }
+
+            //---------------------------------------------------
 
             AppendMenu(hPopup, MF_STRING | (App->bFullscreenMode ? MF_CHECKED : 0), ID_TOGGLEFULLSCREEN, Str("MainMenu.Settings.FullscreenMode"));
 

@@ -293,7 +293,7 @@ bool OBS::SetScene(CTSTR lpScene)
         {
             XElement *source = scene->sceneItems[i]->GetElement();
             String className = source->GetString(TEXT("class"));
-            if(className == "GlobalSource") {
+            if(scene->sceneItems[i]->bRender && className == "GlobalSource") {
                 XElement *globalSourceData = source->GetElement(TEXT("data"));
                 String globalSourceName = globalSourceData->GetString(TEXT("name"));
                 if(App->GetGlobalSource(globalSourceName) != NULL) {
@@ -315,7 +315,7 @@ bool OBS::SetScene(CTSTR lpScene)
         {
             XElement *source = scene->sceneItems[i]->GetElement();
             String className = source->GetString(TEXT("class"));
-            if(className == "GlobalSource") {
+            if(scene->sceneItems[i]->bRender && className == "GlobalSource") {
                 XElement *globalSourceData = source->GetElement(TEXT("data"));
                 String globalSourceName = globalSourceData->GetString(TEXT("name"));
                 if(App->GetGlobalSource(globalSourceName) != NULL) {
@@ -539,6 +539,8 @@ public:
 
     virtual void AddSettingsPane(SettingsPane *pane)    {App->AddSettingsPane(pane);}
     virtual void RemoveSettingsPane(SettingsPane *pane) {App->RemoveSettingsPane(pane);}
+
+    virtual UINT GetSampleRateHz() const {return App->GetSampleRateHz();}
 };
 
 APIInterface* CreateOBSApiInterface()

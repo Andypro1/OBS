@@ -105,7 +105,7 @@ struct BASE_EXPORT ProfileNodeInfo
 
         CTSTR lpIndent = indent == 0 ? TEXT("") : indentStr.Array();
 
-        int perFrameCalls = numCalls/rootCallCount;
+        int perFrameCalls = (int)floor(numCalls/(double)rootCallCount+0.5);
 
         float fTimeTaken = (float)MicroToMS(avgTimeElapsed);
         float cpuTime = (float)MicroToMS(avgCpuTime);
@@ -166,10 +166,10 @@ struct BASE_EXPORT ProfileNodeInfo
 };
 
 
-ProfilerNode *__curProfilerNode = NULL;
-List<ProfileNodeInfo> ProfileNodeInfo::profilerData;
+static __declspec(thread) ProfilerNode *__curProfilerNode = NULL;
 BOOL bProfilingEnabled = FALSE;
-HANDLE hProfilerTimer = NULL;
+List<ProfileNodeInfo> ProfileNodeInfo::profilerData;
+HANDLE hProfilerMutex = NULL;
 
 
 void STDCALL EnableProfiling(BOOL bEnable, float pminPercentage, float pminTime)
@@ -214,6 +214,8 @@ void STDCALL FreeProfileData()
 
 ProfilerNode::ProfilerNode(CTSTR lpName, bool bSingularize)
 {
+    OSEnterMutex(hProfilerMutex);
+
     info = NULL;
     this->lpName = NULL;
 
@@ -222,7 +224,7 @@ ProfilerNode::ProfilerNode(CTSTR lpName, bool bSingularize)
     if(bSingularNode = bSingularize)
     {
         if(!parent)
-            return;
+            goto exit;
 
         while(parent->parent != NULL)
             parent = parent->parent;
@@ -232,7 +234,7 @@ ProfilerNode::ProfilerNode(CTSTR lpName, bool bSingularize)
 
     if(parent)
     {
-        if(!parent->lpName) return; //profiling was disabled when parent was created, so exit to avoid inconsistent results
+        if(!parent->lpName) goto exit; //profiling was disabled when parent was created, so exit to avoid inconsistent results
 
         ProfileNodeInfo *parentInfo = parent->info;
         if(parentInfo)
@@ -257,7 +259,7 @@ ProfilerNode::ProfilerNode(CTSTR lpName, bool bSingularize)
         }
     }
     else
-        return;
+        goto exit;
 
     if (info)
     {
@@ -273,10 +275,15 @@ ProfilerNode::ProfilerNode(CTSTR lpName, bool bSingularize)
     startTime = OSGetTimeMicroseconds();
 
     MonitorThread(OSGetCurrentThread());
+
+exit:
+    OSLeaveMutex(hProfilerMutex);
 }
 
 ProfilerNode::~ProfilerNode()
 {
+    OSEnterMutex(hProfilerMutex);
+
     QWORD newTime = OSGetTimeMicroseconds();
 
     //profiling was diabled when created
@@ -295,6 +302,8 @@ ProfilerNode::~ProfilerNode()
 
     if(!bSingularNode)
         __curProfilerNode = parent;
+
+    OSLeaveMutex(hProfilerMutex);
 }
 
 void ProfilerNode::MonitorThread(HANDLE thread_)

@@ -73,8 +73,8 @@ extern bool         bIsPortable;
 extern TCHAR        lpAppPath[MAX_PATH];
 extern TCHAR        lpAppDataPath[MAX_PATH];
 
-#define OBS_VERSION             0x005503 //version number is 0xMMmmtt (Major.minor.test - yes I know it's hex)
-#define OBS_VERSION_STRING_ANSI "Open Broadcaster Software v0.553b"
+#define OBS_VERSION             0x005602 //version number is 0xMMmmtt (Major.minor.test - yes I know it's hex)
+#define OBS_VERSION_STRING_ANSI "Open Broadcaster Software v0.56.02 MADNESS"
 #define OBS_VERSION_STRING      TEXT(OBS_VERSION_STRING_ANSI)
 #define OBS_TEST_BUILD          1 //define this if releasing a test build to disable the auto updater
 
@@ -86,8 +86,9 @@ extern TCHAR        lpAppDataPath[MAX_PATH];
 #define OBS_DISABLE_AUTOUPDATE 1
 #endif
 
-#define OBS_WINDOW_CLASS      TEXT("OBSWindowClass")
-#define OBS_RENDERFRAME_CLASS TEXT("RenderFrame")
+#define OBS_WINDOW_CLASS         TEXT("OBSWindowClass")
+#define OBS_RENDERFRAME_CLASS    TEXT("OBSRenderFrame")
+#define OBS_PROJECTORFRAME_CLASS TEXT("OBSProjectorFrame")
 
 inline UINT ConvertMSTo100NanoSec(UINT ms)
 {
