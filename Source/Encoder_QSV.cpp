@@ -128,6 +128,21 @@ namespace
         return t/MFX_TIME_FACTOR;
     }
 #undef MFX_TIME_FACTOR
+
+    struct MutexLock
+    {
+        HANDLE mutex;
+        ~MutexLock() { OSLeaveMutex(mutex); }
+        MutexLock(HANDLE mutex_) : mutex(mutex_) { OSEnterMutex(mutex); }
+    private:
+        MutexLock() {}
+    };
+
+    template <class T>
+    void zero(T& t, size_t size=sizeof(T))
+    {
+        memset(&t, 0, size);
+    }
 }
 
 bool CheckQSVHardwareSupport(bool log=true)
@@ -174,7 +189,7 @@ class QSVEncoder : public VideoEncoder
 
     mfxEncodeCtrl ctrl,
                   sei_ctrl;
-    
+
     List<mfxU8> bs_buff;
     struct encode_task
     {
@@ -193,6 +208,7 @@ class QSVEncoder : public VideoEncoder
 
     List<mfxU8> frame_buff;
     List<mfxFrameData> frames;
+    HANDLE frame_mutex;
 
     int fps;
 
@@ -249,7 +265,7 @@ class QSVEncoder : public VideoEncoder
 
         mfxPayload& sei_payload = *sei_payloads.CreateNew();
 
-        memset(&sei_payload, 0, sizeof(sei_payload));
+        zero(sei_payload);
 
         sei_payload.Type = type;
         sei_payload.BufSize = sei_message_buffer.Num()-offset;
@@ -297,7 +313,7 @@ public:
 
         UINT keyframeInterval = AppConfig->GetInt(TEXT("Video Encoding"), TEXT("KeyframeInterval"), 6);
 
-        memset(&params, 0, sizeof(params));
+        zero(params);
         params.mfx.CodecId = MFX_CODEC_AVC;
         params.mfx.TargetUsage = MFX_TARGETUSAGE_BEST_QUALITY;
         params.mfx.TargetKbps = maxBitrate;
@@ -328,6 +344,25 @@ public:
 
         this->width  = width;
         this->height = height;
+
+        List<mfxExtBuffer*> ext_params;
+
+        mfxExtVideoSignalInfo vsi;
+        zero(vsi);
+        vsi.Header.BufferId = MFX_EXTBUFF_VIDEO_SIGNAL_INFO;
+        vsi.Header.BufferSz = sizeof(vsi);
+
+        vsi.ColourDescriptionPresent = 1;
+        vsi.ColourPrimaries = colorDesc.primaries;
+        vsi.MatrixCoefficients = colorDesc.matrix;
+        vsi.TransferCharacteristics = colorDesc.transfer;
+        vsi.VideoFullRange = colorDesc.fullRange;
+        vsi.VideoFormat = 5; //unspecified
+
+        ext_params << (mfxExtBuffer*)&vsi;
+
+        params.ExtParam = ext_params.Array();
+        params.NumExtParam = ext_params.Num();
 
         bool bHaveCustomImpl = false;
         impl_parameters custom = { 0 };
@@ -392,7 +427,7 @@ public:
         }
 
         mfxFrameAllocRequest req;
-        memset(&req, 0, sizeof(req));
+        zero(req);
 
         auto log_impl = [&](mfxIMPL impl, const mfxIMPL intf) {
             mfxIMPL actual;
@@ -482,11 +517,11 @@ public:
             encode_tasks[i].ctrl = nullptr;
 
             mfxFrameSurface1& surf = encode_tasks[i].surf;
-            memset(&surf, 0, sizeof(mfxFrameSurface1));
+            zero(surf);
             memcpy(&surf.Info, &params.mfx.FrameInfo, sizeof(params.mfx.FrameInfo));
-            
+
             mfxBitstream& bs = encode_tasks[i].bs;
-            memset(&bs, 0, sizeof(mfxBitstream));
+            zero(bs);
             bs.Data = bs_start + i*bs_size;
             bs.MaxLength = bs_size;
 
@@ -501,17 +536,18 @@ public:
         frame_buff.SetSize(frame_size * frames.Num() + 15);
 
         mfxU8* frame_start = (mfxU8*)(((size_t)frame_buff.Array() + 15)/16*16);
-        memset(frame_start, 0, frame_size * frames.Num());
+        zero(*frame_start, frame_size * frames.Num());
         for(unsigned i = 0; i < frames.Num(); i++)
         {
             mfxFrameData& frame = frames[i];
-            memset(&frame, 0, sizeof(mfxFrameData));
+            zero(frame);
             frame.Y = frame_start + i * frame_size;
             frame.UV = frame_start + i * frame_size + lum_channel_size;
             frame.V = frame.UV + 1;
             frame.Pitch = fi.Width;
         }
 
+        frame_mutex = OSCreateMutex();
 
         Log(TEXT("Using %u encode tasks"), encode_tasks.Num());
 
@@ -519,10 +555,10 @@ public:
         Log(TEXT("%s"), GetInfoString().Array());
         Log(TEXT("------------------------------------------"));
 
-        memset(&ctrl, 0, sizeof(ctrl));
+        zero(ctrl);
         ctrl.FrameType = MFX_FRAMETYPE_I | MFX_FRAMETYPE_REF | MFX_FRAMETYPE_IDR;
 
-        memset(&sei_ctrl, 0, sizeof(sei_ctrl));
+        zero(sei_ctrl);
 
         InitSEIUserData();
 
@@ -535,6 +571,7 @@ public:
     ~QSVEncoder()
     {
         ClearPackets();
+        OSCloseMutex(frame_mutex);
     }
 
     virtual void RequestBuffers(LPVOID buffers)
@@ -543,6 +580,9 @@ public:
             return;
 
         mfxFrameData& buff = *(mfxFrameData*)buffers;
+
+        MutexLock lock(frame_mutex);
+
         if(buff.MemId && !frames[(unsigned)buff.MemId-1].Locked) //Reuse buffer if not in use
             return;
 
@@ -809,6 +849,8 @@ public:
     {
         for(unsigned i = 0; i < msdk_locked_tasks.Num();)
         {
+            MutexLock lock(frame_mutex);
+
             encode_task& task = encode_tasks[msdk_locked_tasks[i]];
             if(task.surf.Data.Locked)
             {
@@ -842,6 +884,8 @@ public:
             task.ctrl = &sei_ctrl;
         bFirstFrameQueued = true;
 
+        MutexLock lock(frame_mutex);
+
         mfxBitstream& bs = task.bs;
         mfxFrameSurface1& surf = task.surf;
         mfxFrameData& frame = frames[(unsigned)pic.Data.MemId-1];
@@ -861,7 +905,7 @@ public:
 
     bool Encode(LPVOID picInPtr, List<DataPacket> &packets, List<PacketType> &packetTypes, DWORD outputTimestamp)
     {
-        //profileIn("ProcessEncodedFrame");
+        profileIn("ProcessEncodedFrame");
         mfxU32 wait = 0;
         bool bMessageLogged = false;
         do
@@ -886,7 +930,7 @@ public:
             wait = INFINITE;
         }
         while(!idle_tasks.Num());
-        //profileOut;
+        profileOut;
 
         if(picInPtr)
         {
@@ -894,7 +938,7 @@ public:
             QueueEncodeTask(pic);
         }
 
-        //profileIn("EncodeFrameAsync");
+        profileIn("EncodeFrameAsync");
 
         while(picInPtr && queued_tasks.Num())
         {
@@ -933,7 +977,7 @@ public:
             idle_tasks.Remove(0);
         }
 
-        //profileOut;
+        profileOut;
 
         return true;
     }
@@ -943,10 +987,10 @@ public:
         if(!HeaderPacket.Num())
         {
             mfxVideoParam header_query;
-            memset(&header_query, 0, sizeof(header_query));
+            zero(header_query);
             mfxU8 sps[100], pps[100];
             mfxExtCodingOptionSPSPPS headers;
-            memset(&headers, 0, sizeof(headers));
+            zero(headers);
             headers.Header.BufferId = MFX_EXTBUFF_CODING_OPTION_SPSPPS;
             headers.Header.BufferSz = sizeof(mfxExtCodingOptionSPSPPS);
             headers.SPSBuffer = sps;

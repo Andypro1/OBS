@@ -29,7 +29,7 @@ extern "C"
 #include <memory>
 
 
-void Convert444to420(LPBYTE input, int width, int pitch, int height, int startY, int endY, LPBYTE *output);
+void Convert444toI420(LPBYTE input, int width, int pitch, int height, int startY, int endY, LPBYTE *output);
 void Convert444toNV12(LPBYTE input, int width, int inPitch, int outPitch, int height, int startY, int endY, LPBYTE *output);
 
 
@@ -54,6 +54,7 @@ struct Convert444Data
     bool bKillThread;
     HANDLE hSignalConvert, hSignalComplete;
     int width, height, inPitch, outPitch, startY, endY;
+    DWORD numThreads;
 };
 
 DWORD STDCALL Convert444Thread(Convert444Data *data)
@@ -62,6 +63,7 @@ DWORD STDCALL Convert444Thread(Convert444Data *data)
     {
         WaitForSingleObject(data->hSignalConvert, INFINITE);
         if(data->bKillThread) break;
+        profileParallelSegment("Convert444Thread(s)", data->numThreads);
         if(data->bNV12)
             Convert444toNV12(data->input, data->width, data->inPitch, data->outPitch, data->height, data->startY, data->endY, data->output);
         else
@@ -604,6 +606,7 @@ void OBS::MainCaptureLoop()
         convertInfo[i].hSignalConvert  = CreateEvent(NULL, FALSE, FALSE, NULL);
         convertInfo[i].hSignalComplete = CreateEvent(NULL, FALSE, FALSE, NULL);
         convertInfo[i].bNV12 = bUsingQSV;
+        convertInfo[i].numThreads = numThreads;
 
         if(i == 0)
             convertInfo[i].startY = 0;
@@ -632,9 +635,6 @@ void OBS::MainCaptureLoop()
             completeEvents << convertInfo[i].hSignalComplete;
         }
     }
-
-    List<ProfilerNode> threaded420Profilers;
-    bool bUsingThreaded420Profilers = false;
 
     //----------------------------------------
 
@@ -1022,10 +1022,6 @@ void OBS::MainCaptureLoop()
 
                         if(bUseThreaded420)
                         {
-                            bool firstRun = threaded420Profilers.Num() == 0;
-                            if(firstRun)
-                                threaded420Profilers.SetSize(numThreads);
-
                             for(int i=0; i<numThreads; i++)
                             {
                                 convertInfo[i].input     = (LPBYTE)map.pData;
@@ -1044,11 +1040,6 @@ void OBS::MainCaptureLoop()
                                     convertInfo[i].output[1] = nextPicOut.picOut->img.plane[1];
                                     convertInfo[i].output[2] = nextPicOut.picOut->img.plane[2];
 								}
-                                if(!firstRun)
-                                    threaded420Profilers[i].~ProfilerNode();
-                                ::new (&threaded420Profilers[i]) ProfilerNode(TEXT("Convert444Threads"), true);
-                                threaded420Profilers[i].MonitorThread(h420Threads[i]);
-                                bUsingThreaded420Profilers = true;
                                 SetEvent(convertInfo[i].hSignalConvert);
                             }
 
@@ -1230,8 +1221,6 @@ void OBS::MainCaptureLoop()
                 {
                     convertInfo[i].bKillThread = true;
                     SetEvent(convertInfo[i].hSignalConvert);
-                    if(bUsingThreaded420Profilers)
-                        threaded420Profilers[i].~ProfilerNode();
 
                     OSTerminateThread(h420Threads[i], 10000);
                     h420Threads[i] = NULL;
