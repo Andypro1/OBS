@@ -333,6 +333,9 @@ RTMPPublisher::~RTMPPublisher()
     double dBFrameDropPercentage = double(numBFramesDumped)/NumTotalVideoFrames()*100.0;
     double dPFrameDropPercentage = double(numPFramesDumped)/NumTotalVideoFrames()*100.0;
 
+    if (totalSendCount)
+        Log(TEXT("Average send payload: %d bytes, average send interval: %d ms"), (DWORD)(totalSendBytes / totalSendCount), totalSendPeriod / totalSendCount);
+
     Log(TEXT("Number of times waited to send: %d, Waited for a total of %d bytes"), totalTimesWaited, totalBytesWaited);
 
     Log(TEXT("Number of b-frames dropped: %u (%0.2g%%), Number of p-frames dropped: %u (%0.2g%%), Total %u (%0.2g%%)"),
@@ -419,6 +422,8 @@ void RTMPPublisher::FlushBufferedPackets()
         SendPacketForReal(packet.data.Array(), packet.data.Num(), packet.timestamp, packet.type);
     }
 
+    for (int i = 0; i < bufferedPackets.Num(); i++)
+        bufferedPackets[i].data.Clear();
     bufferedPackets.Clear();
 }
 
@@ -894,9 +899,9 @@ DWORD WINAPI RTMPPublisher::CreateConnectionThread(RTMPPublisher *publisher)
 
     RTMP_EnableWrite(rtmp); //set it to publish
 
-    /*rtmp->Link.swfUrl.av_len = rtmp->Link.tcUrl.av_len;
+    rtmp->Link.swfUrl.av_len = rtmp->Link.tcUrl.av_len;
     rtmp->Link.swfUrl.av_val = rtmp->Link.tcUrl.av_val;
-    rtmp->Link.pageUrl.av_len = rtmp->Link.tcUrl.av_len;
+    /*rtmp->Link.pageUrl.av_len = rtmp->Link.tcUrl.av_len;
     rtmp->Link.pageUrl.av_val = rtmp->Link.tcUrl.av_val;*/
     rtmp->Link.flashVer.av_val = "FMLE/3.0 (compatible; FMSc/1.0)";
     rtmp->Link.flashVer.av_len = (int)strlen(rtmp->Link.flashVer.av_val);
@@ -1063,6 +1068,7 @@ void RTMPPublisher::SocketLoop()
 
     int delayTime;
     int latencyPacketSize;
+    DWORD lastSendTime = 0;
 
     WSANETWORKEVENTS networkEvents;
 
@@ -1240,6 +1246,15 @@ void RTMPPublisher::SocketLoop()
                     curDataBufferLen -= ret;
 
                     bytesSent += ret;
+
+                    if (lastSendTime)
+                    {
+                        totalSendPeriod += OSGetTime() - lastSendTime;
+                        totalSendBytes += ret;
+                        totalSendCount++;
+                    }
+
+                    lastSendTime = OSGetTime();
 
                     SetEvent(hBufferSpaceAvailableEvent);
                 }
