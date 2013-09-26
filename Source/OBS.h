@@ -565,6 +565,8 @@ class OBS
     HDC                     hCaptureDC;
     List<MonitorInfo>       monitors;
 
+    UINT                    encoderSkipThreshold;
+
     XConfig                 scenesConfig;
     List<SceneHotkeyInfo>   sceneHotkeys;
     XElement                *sceneElement;
@@ -1032,7 +1034,7 @@ public:
     void SetStreamInfo(UINT infoID, CTSTR lpInfo);
     void SetStreamInfoPriority(UINT infoID, StreamInfoPriority priority);
     void RemoveStreamInfo(UINT infoID);
-    String GetMostImportantInfo();
+    String GetMostImportantInfo(StreamInfoPriority &priority);
 
     inline QWORD GetSceneTimestamp() {return firstSceneTimestamp;}
 

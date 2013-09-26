@@ -1192,8 +1192,8 @@ void OBS::ReloadIniSettings()
     hwndTemp = GetDlgItem(hwndMain, ID_MICVOLUME);
 
     if(!AppConfig->HasKey(TEXT("Audio"), TEXT("MicVolume")))
-        AppConfig->SetFloat(TEXT("Audio"), TEXT("MicVolume"), 0.0f);
-    SetVolumeControlValue(hwndTemp, AppConfig->GetFloat(TEXT("Audio"), TEXT("MicVolume"), 0.0f));
+        AppConfig->SetFloat(TEXT("Audio"), TEXT("MicVolume"), 1.0f);
+    SetVolumeControlValue(hwndTemp, AppConfig->GetFloat(TEXT("Audio"), TEXT("MicVolume"), 1.0f));
 
     AudioDeviceList audioDevices;
     GetAudioDevices(audioDevices, ADT_RECORDING);
@@ -1466,10 +1466,19 @@ void OBS::DrawStatusBar(DRAWITEMSTRUCT &dis)
     else
     {
         String strOutString;
+        DWORD color = 0x000000;
 
         switch(dis.itemID)
         {
-            case 0: strOutString << App->GetMostImportantInfo(); break;
+            case 0:
+                {
+                    StreamInfoPriority priority;
+                    strOutString << App->GetMostImportantInfo(priority);
+                    if (priority == StreamInfoPriority_Critical)
+                        color = 0x0000FF;
+                    break;
+                }
+
             case 1:
                 {
                     DWORD streamTimeSecondsTotal = App->totalStreamTime/1000;
@@ -1503,6 +1512,7 @@ void OBS::DrawStatusBar(DRAWITEMSTRUCT &dis)
 
         if(strOutString.IsValid())
         {
+            SetTextColor(hdcTemp, color);
             SetBkMode(hdcTemp, TRANSPARENT);
             DrawText(hdcTemp, strOutString, strOutString.Length(), &rc, DT_VCENTER|DT_SINGLELINE|DT_LEFT);
         }

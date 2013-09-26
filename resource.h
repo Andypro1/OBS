@@ -36,6 +36,7 @@
 #define IDD_CONFIGUREWINDOWCAPTURE      143
 #define IDD_MONITORCAPTURE              144
 #define IDD_CONFIGUREMONITORCAPTURE     144
+#define IDD_STATS                       145
 #define IDC_SETTINGSLIST                1006
 #define IDC_SUBDIALOG                   1007
 #define IDC_MODE                        1008
@@ -55,6 +56,8 @@
 #define IDC_COLORPICKER                 1015
 #define IDC_DOWNSCALE2                  1015
 #define IDC_FILTER                      1015
+#define IDC_PRESET2                     1015
+#define IDC_X264PROFILE                 1015
 #define IDC_BUFFERSIZE                  1016
 #define IDC_FILTER2                     1016
 #define IDC_DEVICE                      1016
@@ -273,6 +276,12 @@
 #define IDC_CHECK3                      1161
 #define IDC_SCROLLMODE                  1161
 #define IDC_ENABLEPROJECTORCURSOR       1161
+#define IDC_TOTALFRAMES                 1163
+#define IDC_DROPPEDFRAMES               1164
+#define IDC_LATEFRAMES                  1165
+#define IDC_SKIPPEDFRAMES               1166
+#define IDC_BYTESTRANSFERRED            1167
+#define IDC_TOTALFRAMES2                1168
 #define IDA_SOURCE_MOVEUP               40018
 #define IDA_SOURCE_MOVEDOWN             40019
 #define IDA_SOURCE_MOVETOTOP            40020
@@ -319,9 +328,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        145
+#define _APS_NEXT_RESOURCE_VALUE        146
 #define _APS_NEXT_COMMAND_VALUE         40055
-#define _APS_NEXT_CONTROL_VALUE         1162
+#define _APS_NEXT_CONTROL_VALUE         1168
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

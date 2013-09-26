@@ -343,6 +343,9 @@ RTMPPublisher::~RTMPPublisher()
         numPFramesDumped, dPFrameDropPercentage,
         numBFramesDumped+numPFramesDumped, dBFrameDropPercentage+dPFrameDropPercentage);
 
+    Log(TEXT("Number of bytes sent: %llu"), totalSendBytes);
+
+
     /*if(totalCalls)
         Log(TEXT("average send time: %u"), totalTime/totalCalls);*/
 
@@ -420,10 +423,10 @@ void RTMPPublisher::FlushBufferedPackets()
         } while (curTime - startTime < packet.timestamp - baseTimestamp);
 
         SendPacketForReal(packet.data.Array(), packet.data.Num(), packet.timestamp, packet.type);
+
+        packet.data.Clear();
     }
 
-    for (int i = 0; i < bufferedPackets.Num(); i++)
-        bufferedPackets[i].data.Clear();
     bufferedPackets.Clear();
 }
 
@@ -937,6 +940,8 @@ DWORD WINAPI RTMPPublisher::CreateConnectionThread(RTMPPublisher *publisher)
 
     //-----------------------------------------
 
+    DWORD startTime = OSGetTime();
+
     if(!RTMP_Connect(rtmp, NULL))
     {
         failReason = Str("Connection.CouldNotConnect");
@@ -944,6 +949,8 @@ DWORD WINAPI RTMPPublisher::CreateConnectionThread(RTMPPublisher *publisher)
         bCanRetry = true;
         goto end;
     }
+
+    Log(TEXT("Completed handshake with %s in %u ms."), strURL.Array(), OSGetTime() - startTime);
 
     if(!RTMP_ConnectStream(rtmp, 0))
     {
@@ -1149,6 +1156,12 @@ void RTMPPublisher::SocketLoop()
 
             if (networkEvents.lNetworkEvents & FD_CLOSE)
             {
+                if (lastSendTime)
+                {
+                    DWORD diff = OSGetTime() - lastSendTime;
+                    Log(TEXT("RTMPPublisher::SocketLoop: Received FD_CLOSE, %u ms since last send (buffer: %d / %d)"), diff, curDataBufferLen, dataBufferSize);
+                }
+
                 if (bStopping)
                     Log(TEXT("RTMPPublisher::SocketLoop: Aborting due to FD_CLOSE during shutdown, %d bytes lost, error %d"), curDataBufferLen, networkEvents.iErrorCode[FD_CLOSE_BIT]);
                 else
@@ -1249,7 +1262,12 @@ void RTMPPublisher::SocketLoop()
 
                     if (lastSendTime)
                     {
-                        totalSendPeriod += OSGetTime() - lastSendTime;
+                        DWORD diff = OSGetTime() - lastSendTime;
+
+                        if (diff >= 1500)
+                            Log(TEXT("RTMPPublisher::SendLoop: Stalled for %u ms to write %d bytes (buffer: %d / %d), unstable connection?"), diff, ret, curDataBufferLen, dataBufferSize);
+
+                        totalSendPeriod += diff;
                         totalSendBytes += ret;
                         totalSendCount++;
                     }

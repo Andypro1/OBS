@@ -303,9 +303,14 @@ void OBS::EncodeLoop()
 
     firstFrameTimestamp = 0;
 
+    UINT encoderInfo = 0;
+    QWORD messageTime = 0;
+
     EncoderPicture *lastPic = NULL;
 
-    int no_sleep_counter = 0;
+    UINT skipThreshold = encoderSkipThreshold*2;
+    UINT no_sleep_counter = 0;
+
     CircularList<QWORD> bufferedTimes;
 
     while(!bShutdownEncodeThread || (bufferedFrames && !bTestStream)) {
@@ -317,10 +322,23 @@ void OBS::EncodeLoop()
         latestVideoTime = sleepTargetTime/1000000;
         latestVideoTimeNS = sleepTargetTime;
 
-        if (no_sleep_counter < 4)
+        if (no_sleep_counter < skipThreshold) {
             SetEvent(hVideoEvent);
-        else
+            if (encoderInfo) {
+                if (messageTime == 0) {
+                    messageTime = latestVideoTime+3000;
+                } else if (latestVideoTime >= messageTime) {
+                    RemoveStreamInfo(encoderInfo);
+                    encoderInfo = 0;
+                    messageTime = 0;
+                }
+            }
+        } else {
             numFramesSkipped++;
+            if (!encoderInfo)
+                encoderInfo = AddStreamInfo(Str("EncoderLag"), StreamInfoPriority_Critical);
+            messageTime = 0;
+        }
 
         if (!SleepToNS(sleepTargetTime += (frameTimeNS/2)))
             no_sleep_counter++;
@@ -678,13 +696,12 @@ void OBS::MainCaptureLoop()
         double fSeconds = double(frameDelta)*0.000000001;
         //lastStreamTime = renderStartTime;
 
+        bool bUpdateBPS = false;
+
         profileIn("video thread frame");
 
         //Log(TEXT("Stream Time: %llu"), curStreamTime);
         //Log(TEXT("frameDelta: %lf"), fSeconds);
-
-        bool bUpdateBPS = false;
-        profileIn("frame preprocessing and rendering");
 
         //------------------------------------
 
@@ -951,12 +968,10 @@ void OBS::MainCaptureLoop()
 
         OSLeaveMutex(hSceneMutex);
 
-        profileOut;
-
         //------------------------------------
         // present/upload
 
-        profileIn("GPU download and color conversion");
+        profileIn("GPU download and conversion");
 
         bEncode = true;
 
@@ -1199,9 +1214,8 @@ void OBS::MainCaptureLoop()
         profileIn("flush");
         GetD3D()->Flush();
         profileOut;
-
-        profileOut; //video encoding and uploading
-        profileOut; //frame
+        profileOut;
+	profileOut; //frame
 
         //------------------------------------
         // frame sync
